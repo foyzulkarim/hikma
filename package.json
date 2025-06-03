@@ -1,0 +1,29 @@
+{
+  "name": "pocli",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "npm run start",
+    "test": "node tests/memory.test.js"
+  },
+  "keywords": [
+    "ollama",
+    "chat",
+    "memory",
+    "conversation",
+    "llm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "better-sqlite3": "^9.2.2",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "dotenv": "^16.3.1",
+    "inquirer": "^9.2.12",
+    "nanoid": "^5.0.4"
+  }
+}

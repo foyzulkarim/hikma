@@ -2,6 +2,7 @@
 import { MemoryManager } from '../memory/MemoryManager.js';
 import { SqliteMemoryManager } from '../memory/SqliteMemoryManager.js';
 import { OllamaClient } from '../OllamaClient.js';
+import { ContextManager } from '../context/ContextManager.js';
 import EventEmitter from 'events';
 
 /**
@@ -20,6 +21,9 @@ export class ChatSession extends EventEmitter {
     
     // Initialize Ollama client
     this.ollama = new OllamaClient(options.ollamaOptions);
+    
+    // Initialize context manager
+    this.context = new ContextManager();
     
     // Session settings
     this.settings = {
@@ -84,15 +88,28 @@ export class ChatSession extends EventEmitter {
       await this.initialize();
     }
     
-    // Add user message to memory
+    // Get context content and prepend to message if available
+    const contextContent = await this.context.getFullContext(this.activeConversationId);
+    const messageWithContext = contextContent ? contextContent + message : message;
+    
+    // Add user message to memory (original message without context)
     const userMessage = this.memory.addMessage('user', message, this.activeConversationId);
     this.emit('messageSent', { message: userMessage });
     
     // Get conversation history
     const messages = this.memory.getMessages(this.activeConversationId);
     
+    // For the last message (user's message), replace with context-enriched version
+    const messagesWithContext = [...messages];
+    if (messagesWithContext.length > 0 && messagesWithContext[messagesWithContext.length - 1].role === 'user') {
+      messagesWithContext[messagesWithContext.length - 1] = {
+        ...messagesWithContext[messagesWithContext.length - 1],
+        content: messageWithContext
+      };
+    }
+    
     // Generate response from Ollama
-    const result = await this.ollama.generateChatCompletion(messages, {
+    const result = await this.ollama.generateChatCompletion(messagesWithContext, {
       model: this.settings.model,
       temperature: this.settings.temperature,
       max_tokens: this.settings.maxTokens
@@ -182,6 +199,9 @@ export class ChatSession extends EventEmitter {
     const result = this.memory.deleteConversation(conversationId);
     
     if (result) {
+      // Clean up context for this conversation
+      this.context.cleanupConversation(conversationId);
+      
       this.emit('conversationDeleted', { conversationId });
       
       // If we deleted the active conversation, create a new one
@@ -251,6 +271,14 @@ export class ChatSession extends EventEmitter {
     }
     
     this.emit('closed');
+  }
+
+  /**
+   * Get the context manager
+   * @returns {ContextManager} - The context manager instance
+   */
+  getContextManager() {
+    return this.context;
   }
 }
 

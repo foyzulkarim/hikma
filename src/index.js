@@ -19,7 +19,7 @@ const configPath = path.join(__dirname, '..', 'config', 'config.json');
 const defaultConfig = {
   ollama: {
     baseUrl: 'http://localhost:11434/api',
-    defaultModel: 'llama3'
+    defaultModel: 'llama3.2:latest'
   },
   memory: {
     persistMemory: true,
@@ -30,7 +30,7 @@ const defaultConfig = {
     includeSystemPrompt: true,
     systemPrompt: "You are a helpful assistant. Respond concisely and accurately.",
     temperature: 0.7,
-    maxTokens: 2048
+    maxTokens: 30000
   }
 };
 
@@ -132,8 +132,77 @@ function displayHelp() {
   console.log(chalk.yellow('/temp <value>') + ' - Update the temperature setting');
   console.log(chalk.yellow('/model <name>') + ' - Change the model');
   console.log(chalk.yellow('/models') + ' - List all available models');
+  console.log(chalk.yellow('/context') + ' - Manage context files and hooks for the chat session');
   console.log(chalk.yellow('/exit') + ' - Exit the chat');
   console.log('');
+}
+
+// Helper function to display context help
+function displayContextHelp() {
+  console.log(chalk.cyan('\nContext Commands:'));
+  console.log(chalk.yellow('/context help') + ' - Show this context help');
+  console.log(chalk.yellow('/context show') + ' - Display current context configuration');
+  console.log(chalk.yellow('/context tokens') + ' - Display token counts for context files');
+  console.log(chalk.yellow('/context add <file1> [file2...]') + ' - Add file(s) to context');
+  console.log(chalk.yellow('/context rm <file1> [file2...]') + ' - Remove file(s) from context');
+  console.log(chalk.yellow('/context clear') + ' - Clear all files from current context');
+  console.log(chalk.yellow('/context hooks') + ' - View and manage context hooks');
+  console.log('');
+}
+
+// Helper function to display context status
+function displayContextStatus(contextManager, conversationId) {
+  const files = contextManager.getContextFiles(conversationId);
+  const hooks = contextManager.getHooks(conversationId);
+  const tokenCounts = contextManager.getContextTokenCounts(conversationId);
+  
+  console.log(chalk.cyan('\n--- Context Configuration ---'));
+  
+  if (files.length === 0) {
+    console.log(chalk.gray('No files in context'));
+  } else {
+    console.log(chalk.yellow(`Files in context (${files.length}, ~${tokenCounts.totalTokens} tokens):`));
+    files.forEach(file => {
+      const relativePath = path.relative(process.cwd(), file);
+      const fileDetail = tokenCounts.files.find(f => f.path === relativePath);
+      const tokenInfo = fileDetail ? ` (~${fileDetail.tokens} tokens)` : '';
+      console.log(`  ${chalk.green('✓')} ${relativePath}${chalk.gray(tokenInfo)}`);
+    });
+  }
+  
+  if (hooks.length === 0) {
+    console.log(chalk.gray('No context hooks'));
+  } else {
+    console.log(chalk.yellow(`\nContext hooks (${hooks.length}):`));
+    hooks.forEach(hook => {
+      console.log(`  ${chalk.green('✓')} ${hook.name}`);
+    });
+  }
+  
+  console.log(chalk.cyan('-----------------------------\n'));
+}
+
+// Helper function to display token counts
+function displayContextTokens(contextManager, conversationId) {
+  const tokenCounts = contextManager.getContextTokenCounts(conversationId);
+  
+  console.log(chalk.cyan('\n--- Context Token Counts ---'));
+  
+  if (tokenCounts.files.length === 0) {
+    console.log(chalk.gray('No files in context'));
+  } else {
+    console.log(chalk.yellow(`Total tokens: ~${tokenCounts.totalTokens} (${tokenCounts.files.length} files)`));
+    
+    // Sort files by token count (highest first)
+    const sortedFiles = [...tokenCounts.files].sort((a, b) => b.tokens - a.tokens);
+    
+    sortedFiles.forEach(file => {
+      const sizeKB = (file.size / 1024).toFixed(1);
+      console.log(`  ${chalk.green('•')} ${file.path}: ${chalk.yellow(`~${file.tokens} tokens`)} (${sizeKB} KB)`);
+    });
+  }
+  
+  console.log(chalk.cyan('---------------------------\n'));
 }
 
 // Main chat loop
@@ -275,6 +344,117 @@ async function startChat() {
             console.log('');
           } else {
             console.log(chalk.red(`Error fetching models: ${modelResult.error || 'Unknown error'}`));
+          }
+          break;
+          
+        case 'context':
+          if (!args) {
+            displayContextHelp();
+            break;
+          }
+          
+          const contextParts = args.split(' ');
+          const contextCommand = contextParts[0].toLowerCase();
+          const contextArgs = contextParts.slice(1);
+          
+          const contextManager = chatSession.getContextManager();
+          
+          switch (contextCommand) {
+            case 'help':
+              displayContextHelp();
+              break;
+              
+            case 'show':
+              displayContextStatus(contextManager, chatSession.activeConversationId);
+              break;
+              
+            case 'tokens':
+              displayContextTokens(contextManager, chatSession.activeConversationId);
+              break;
+              
+            case 'add':
+              if (contextArgs.length === 0) {
+                console.log(chalk.red('Please provide file(s) to add'));
+                console.log(chalk.yellow('Usage: /context add <file1> [file2...]'));
+                break;
+              }
+              
+              console.log(chalk.gray('Adding files to context...'));
+              const addResult = await contextManager.addFiles(chatSession.activeConversationId, contextArgs);
+              
+              if (addResult.success) {
+                console.log(chalk.green(`Successfully added files to context`));
+                console.log(chalk.gray(`Total files in context: ${addResult.totalFiles}`));
+                
+                // Display results
+                addResult.results.forEach(result => {
+                  if (result.success) {
+                    if (result.isDirectory) {
+                      console.log(`  ${chalk.green('✓')} ${result.file} (directory: ${result.filesAdded} files added, ${result.filesSkipped} skipped)`);
+                    } else {
+                      console.log(`  ${chalk.green('✓')} ${result.file}`);
+                    }
+                  } else {
+                    console.log(`  ${chalk.red('✗')} ${result.file}: ${result.error}`);
+                  }
+                });
+              } else {
+                console.log(chalk.yellow('No files could be added:'));
+                addResult.results.forEach(result => {
+                  console.log(`  ${chalk.red('✗')} ${result.file}: ${result.error}`);
+                });
+              }
+              break;
+              
+            case 'rm':
+              if (contextArgs.length === 0) {
+                console.log(chalk.red('Please provide file(s) to remove'));
+                console.log(chalk.yellow('Usage: /context rm <file1> [file2...]'));
+                break;
+              }
+              
+              const removeResult = contextManager.removeFiles(chatSession.activeConversationId, contextArgs);
+              
+              if (removeResult.success) {
+                console.log(chalk.green(`Successfully removed ${removeResult.results.filter(r => r.success).length} file(s) from context`));
+                console.log(chalk.gray(`Total files in context: ${removeResult.totalFiles}`));
+              } else {
+                console.log(chalk.yellow('Some files could not be removed:'));
+                removeResult.results.forEach(result => {
+                  if (result.success) {
+                    console.log(`  ${chalk.green('✓')} ${result.file}`);
+                  } else {
+                    console.log(`  ${chalk.red('✗')} ${result.file}: ${result.error}`);
+                  }
+                });
+              }
+              break;
+              
+            case 'clear':
+              const clearResult = contextManager.clearFiles(chatSession.activeConversationId);
+              if (clearResult.success) {
+                console.log(chalk.green(`Cleared ${clearResult.clearedCount} file(s) from context`));
+              } else {
+                console.log(chalk.red('Error clearing context'));
+              }
+              break;
+              
+            case 'hooks':
+              const hooks = contextManager.getHooks(chatSession.activeConversationId);
+              if (hooks.length === 0) {
+                console.log(chalk.gray('No context hooks defined'));
+              } else {
+                console.log(chalk.cyan('\n--- Context Hooks ---'));
+                hooks.forEach(hook => {
+                  console.log(`  ${chalk.green('✓')} ${hook.name}`);
+                });
+                console.log('');
+              }
+              break;
+              
+            default:
+              console.log(chalk.red(`Unknown context command: ${contextCommand}`));
+              displayContextHelp();
           }
           break;
           

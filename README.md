@@ -66,6 +66,13 @@ Once in the chat interface, you can use the following commands:
 - `/system <prompt>`: Update the system prompt
 - `/temp <value>`: Update the temperature setting
 - `/model <name>`: Change the model
+- `/context`: Manage context files and hooks for the chat session
+  - `/context help`: Show context help
+  - `/context show`: Display current context configuration
+  - `/context add <file1> [file2...]`: Add file(s) to context
+  - `/context rm <file1> [file2...]`: Remove file(s) from context
+  - `/context clear`: Clear all files from current context
+  - `/context hooks`: View and manage context hooks
 - `/exit`: Exit the chat
 
 ## How It Works
@@ -98,6 +105,59 @@ The `OllamaClient` class handles communication with the Ollama API:
 1. Sends prompts to Ollama with conversation history as context
 2. Formats messages for optimal context understanding
 3. Handles API responses and errors
+
+## Context Management
+
+The context management feature allows you to add files to your chat sessions, providing the LLM with additional context when responding to your queries. This is particularly useful for:
+
+- Code review and analysis
+- Documentation questions
+- Project-specific inquiries
+- File-based discussions
+
+### Context Features
+
+1. **File Context**: Add any text-based file to provide context to the LLM
+2. **Per-Conversation Context**: Each conversation maintains its own context files
+3. **Automatic Cleanup**: Context is automatically cleaned when conversations are deleted
+4. **File Type Support**: Supports common programming languages, configuration files, and text files
+5. **Size Limits**: Files are limited to 1MB to ensure optimal performance
+6. **Context Hooks**: Advanced feature for dynamic context generation
+
+### Supported File Types
+
+The context manager supports the following file extensions:
+
+- Programming languages: `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.java`, `.cpp`, `.c`, `.h`, `.cs`, `.php`, `.rb`, `.go`, `.rs`, `.kt`, `.swift`, `.scala`
+- Web technologies: `.html`, `.css`, `.scss`, `.less`, `.xml`
+- Data formats: `.json`, `.yaml`, `.yml`, `.sql`
+- Documentation: `.md`, `.txt`
+- Configuration: `.env`, `.gitignore`, `.dockerfile`
+- Shell scripts: `.sh`, `.bash`, `.zsh`, `.fish`
+
+### Usage Examples
+
+```bash
+# Add a single file to context
+/context add src/utils/helper.js
+
+# Add multiple files
+/context add package.json README.md src/index.js
+
+# View current context
+/context show
+
+# Remove specific files
+/context rm src/utils/helper.js
+
+# Clear all context files
+/context clear
+
+# View context hooks
+/context hooks
+```
+
+When context files are present, they are automatically included in your prompts, allowing the LLM to reference the file contents when generating responses.
 
 ## Extending the Project
 

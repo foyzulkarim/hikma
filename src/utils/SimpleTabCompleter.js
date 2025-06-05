@@ -40,6 +40,8 @@ export class SimpleTabCompleter {
       { name: 'model', description: 'Change the model' },
       { name: 'models', description: 'List all available models' },
       { name: 'context', description: 'Manage context files and hooks' },
+      { name: 'tools', description: 'List available tools and their keywords' },
+      { name: 'usage', description: 'Display token usage statistics' },
       { name: 'exit', description: 'Exit the chat' }
     ];
 

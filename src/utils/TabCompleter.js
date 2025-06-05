@@ -38,6 +38,8 @@ export class TabCompleter {
     this.completer.registerCommand('temp', [], 'Update the temperature setting');
     this.completer.registerCommand('model', [], 'Change the model');
     this.completer.registerCommand('models', [], 'List all available models');
+    this.completer.registerCommand('tools', [], 'List available tools and their keywords');
+    this.completer.registerCommand('usage', [], 'Display token usage statistics');
     this.completer.registerCommand('exit', [], 'Exit the chat');
     
     // Register context commands with subcommands

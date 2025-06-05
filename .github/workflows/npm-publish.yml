@@ -60,10 +60,10 @@ jobs:
           git commit -m "Bump version to $NEW_VERSION [skip ci]"
           
           # Push the changes back to the repository
-          git push https://${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git HEAD:main
+          git push https://${PAT_GITHUB}@github.com/${GITHUB_REPOSITORY}.git HEAD:main
           
           # Publish to npm
           npm publish
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_TOKEN: ${{secrets.PAT_GITHUB}}

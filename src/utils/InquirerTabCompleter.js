@@ -141,7 +141,7 @@ export class InquirerTabCompleter {
         return [];
       },
       // Don't use suggestOnly mode - allow direct selection from list
-      suggestOnly: false,
+      suggestOnly: true,
       // Set page size to show more options at once  
       pageSize: 8,
       // Customize text shown during search

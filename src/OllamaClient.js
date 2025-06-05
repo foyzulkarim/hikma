@@ -160,6 +160,13 @@ export class OllamaClient {
       }
 
       const model = options.model || this.defaultModel;
+      if (!model) {
+        return {
+          success: false,
+          error: "No model specified. Please specify a model using the --model option or set a default model in the configuration.",
+          response: null
+        };
+      }
       const params = { ...this.defaultParams, ...options };
 
       // Add tool information to system context if tools are available
@@ -207,6 +214,7 @@ export class OllamaClient {
       });
       
       try {
+        console.log(`Using model: ${model} for generation`);
         const response = await axios.post(`${this.baseUrl}/generate`, {
           model,
           prompt,

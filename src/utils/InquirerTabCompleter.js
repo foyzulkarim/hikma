@@ -1,6 +1,7 @@
 // src/utils/InquirerTabCompleter.js
 import inquirer from 'inquirer';
 import { CommandCompleter } from './CommandCompleter.js';
+import chalk from 'chalk';
 
 /**
  * Custom prompt with tab completion for inquirer
@@ -54,6 +55,39 @@ export class InquirerTabCompleter {
   }
 
   /**
+   * Format commands with descriptions for better display
+   */
+  formatCommandsWithDescriptions(commands) {
+    const commandDescriptions = {
+      '/help': 'Display help message',
+      '/history': 'Show conversation history', 
+      '/new': 'Start a new conversation',
+      '/list': 'List all conversations',
+      '/switch': 'Switch to a different conversation',
+      '/delete': 'Delete a conversation',
+      '/system': 'Update the system prompt',
+      '/temp': 'Update the temperature setting',
+      '/model': 'Change the model',
+      '/models': 'List all available models',
+      '/tools': 'List available tools and their keywords',
+      '/usage': 'Display token usage statistics',
+      '/exit': 'Exit the chat',
+      '/context': 'Manage context files and hooks'
+    };
+
+    return commands.map((cmd, index) => {
+      const description = commandDescriptions[cmd] || '';
+      const isFirst = index === 0;
+      const marker = isFirst ? '▶ ' : '  ';
+      return {
+        name: `${marker}${cmd}${description ? chalk.gray(' - ' + description) : ''}`,
+        value: cmd,
+        short: cmd
+      };
+    });
+  }
+
+  /**
    * Create a custom inquirer prompt with tab completion
    * @param {Object} options - Prompt options
    * @returns {Promise} - Promise that resolves with the user's input
@@ -81,21 +115,40 @@ export class InquirerTabCompleter {
         });
       }
     }
-    
-    // Create the autocomplete prompt
+
+    // Create the autocomplete prompt with enhanced formatting
     return inquirer.prompt({
       type: 'autocomplete',
       name: 'userInput',
       message: options.message || 'You:',
       prefix: options.prefix || '',
       source: async (answersSoFar, input) => {
-        if (!input || !input.startsWith('/')) {
-          return [];
+        // Always show all commands when input starts with '/' but is just '/'
+        if (input === '/') {
+          const allCommands = Array.from(this.completer.commands.keys()).map(cmd => `/${cmd}`);
+          return this.formatCommandsWithDescriptions(allCommands);
         }
-        return this.completer.getCompletions(input);
+        
+        // Show completions for partial slash commands
+        if (input && input.startsWith('/')) {
+          const completions = this.completer.getCompletions(input);
+          if (completions.length > 0) {
+            return this.formatCommandsWithDescriptions(completions);
+          }
+        }
+        
+        // No completions for non-slash commands
+        return [];
       },
-      // Only show completions when input starts with '/'
+      // Don't use suggestOnly mode - allow direct selection from list
       suggestOnly: true,
+      // Set page size to show more options at once  
+      pageSize: 8,
+      // Customize text shown during search
+      searchText: 'Searching commands...',
+      emptyText: 'Type / to see available commands',
+      // Don't loop through suggestions
+      loop: false,
     });
   }
 }

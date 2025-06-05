@@ -1,8 +1,8 @@
-# Function Calling Guide for POCLI
+# Function Calling Guide for hikma
 
 ## Overview
 
-Your POCLI application now has a robust function calling system that can execute tools based on natural language prompts. The system has been enhanced with improved keyword matching and better LLM integration.
+Your hikma application now has a robust function calling system that can execute tools based on natural language prompts. The system has been enhanced with improved keyword matching and better LLM integration.
 
 ## What Was Fixed
 

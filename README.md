@@ -1,4 +1,4 @@
-# POCLI - Command Line Interface with Tab Completion
+# hikma - Command Line Interface with Tab Completion
 
 A command-line interface for chatting with Ollama LLM with conversation memory and command tab completion.
 
@@ -94,7 +94,7 @@ For example:
 
 ## Token Usage Tracking
 
-POCLI tracks token usage for both prompts and completions. You can view your current token usage statistics with the `/usage` command, which displays:
+hikma tracks token usage for both prompts and completions. You can view your current token usage statistics with the `/usage` command, which displays:
 
 - Prompt tokens used
 - Completion tokens used
@@ -102,7 +102,7 @@ POCLI tracks token usage for both prompts and completions. You can view your cur
 
 ## Tool System
 
-POCLI includes a tool system that allows the LLM to use specialized tools for specific tasks. Tools are automatically detected based on keywords in user messages. Use the `/tools` command to see available tools and their associated keywords.
+hikma includes a tool system that allows the LLM to use specialized tools for specific tasks. Tools are automatically detected based on keywords in user messages. Use the `/tools` command to see available tools and their associated keywords.
 
 ## Memory Management
 

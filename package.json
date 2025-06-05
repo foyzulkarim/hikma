@@ -9,8 +9,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "dev": "npm run start",
-    "test": "node tests/memory.test.js"
+    "dev": "npm run start"
   },
   "keywords": [
     "ollama",

@@ -19,19 +19,19 @@ const configPath = path.join(__dirname, '..', 'config', 'config.json');
 // Default configuration
 const defaultConfig = {
   ollama: {
-    baseUrl: 'http://localhost:11434/api',
-    defaultModel: 'llama3.2:latest'
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434/api',
+    defaultModel: process.env.OLLAMA_DEFAULT_MODEL || 'llama3.2:latest'
   },
   memory: {
-    persistMemory: true,
-    maxMessages: 100,
-    summarizeThreshold: 50
+    persistMemory: process.env.PERSIST_MEMORY === 'false' ? false : true,
+    maxMessages: parseInt(process.env.MAX_MESSAGES) || 100,
+    summarizeThreshold: parseInt(process.env.SUMMARIZE_THRESHOLD) || 50
   },
   settings: {
     includeSystemPrompt: true,
-    systemPrompt: "You are a helpful assistant. Respond concisely and accurately.",
-    temperature: 0.7,
-    maxTokens: 30000
+    systemPrompt: process.env.SYSTEM_PROMPT || "You are a helpful assistant. Respond concisely and accurately.",
+    temperature: parseFloat(process.env.TEMPERATURE) || 0.7,
+    maxTokens: parseInt(process.env.MAX_TOKENS) || 30000
   }
 };
 
@@ -77,7 +77,10 @@ if (options.noSystem === false) config.settings.includeSystemPrompt = false;
 const chatSession = new ChatSession({
   ollamaOptions: config.ollama,
   memoryOptions: config.memory,
-  settings: config.settings,
+  settings: {
+    ...config.settings,
+    model: config.ollama.defaultModel // Explicitly pass the model to settings
+  },
   persistMemory: config.memory.persistMemory
 });
 
@@ -226,7 +229,7 @@ async function startChat() {
   const currentConversation = chatSession.getCurrentConversation();
   
   // Display the current model
-  console.log(chalk.green(`Using model: ${config.ollama.defaultModel}`));
+  console.log(chalk.green(`Using model: ${chatSession.settings.model || config.ollama.defaultModel}`));
   
   // Display system prompt if enabled
   if (config.settings.includeSystemPrompt) {

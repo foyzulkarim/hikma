@@ -1,63 +1,37 @@
-# Hikma
+# Hikma CLI
 
-A CLI chat interface for Ollama with conversation memory.
+CLI chat interface for Ollama with conversation memory.
 
-## Installation
+## Environment Variables
 
-```bash
-npm install -g hikma
+You can configure the application using environment variables in a `.env` file:
+
+```
+# Ollama configuration
+OLLAMA_BASE_URL=http://localhost:11434/api
+OLLAMA_DEFAULT_MODEL=llama3.2:latest
+
+# Memory configuration
+PERSIST_MEMORY=true
+MAX_MESSAGES=100
+SUMMARIZE_THRESHOLD=50
+
+# Settings
+TEMPERATURE=0.7
+MAX_TOKENS=30000
+SYSTEM_PROMPT="You are a helpful assistant. Respond concisely and accurately."
 ```
 
 ## Usage
 
-Simply run:
-
 ```bash
-hikma
+# Start with default settings from .env file
+npm start
+
+# Override settings from command line
+npm start -- --model llama3.2:3b-instruct --temperature 0.3
 ```
 
-### Command Line Options
+## Available Commands
 
-```
-Options:
-  -m, --model <model>          Specify the model to use
-  -t, --temperature <temp>     Set the temperature (0.0-1.0)
-  -p, --persist                Enable persistent memory storage
-  -s, --system <prompt>        Set a custom system prompt
-  -n, --no-system              Disable system prompt
-  -c, --config <path>          Path to config file
-  -h, --help                   Display help information
-```
-
-### Chat Commands
-
-Once in the chat interface, you can use these commands:
-
-- `/help` - Display help message
-- `/history` - Show conversation history
-- `/new` - Start a new conversation
-- `/list` - List all conversations
-- `/switch <id>` - Switch to a different conversation
-- `/delete <id>` - Delete a conversation
-- `/system <prompt>` - Update the system prompt
-- `/temp <value>` - Update the temperature setting
-- `/model <name>` - Change the model
-- `/models` - List all available models
-- `/context` - Manage context files and hooks
-- `/tools` - List available tools
-- `/usage` - Display token usage statistics
-- `/exit` - Exit the chat
-
-### Special Prefixes
-
-- `!<command>` - Execute a bash command
-- `gh:<command>` - Execute a GitHub CLI command
-
-## Requirements
-
-- Node.js >= 14.16
-- Ollama running locally (default: http://localhost:11434)
-
-## License
-
-MIT
+Type `/help` in the chat interface to see all available commands.

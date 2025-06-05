@@ -1,0 +1,31 @@
+# Development files
+.git/
+.github/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+.claude/
+
+# Test files
+tests/
+*.test.js
+coverage/
+
+# Documentation
+docs/
+examples/
+CONTRIBUTING.md
+FUNCTION_CALLING_GUIDE.md
+
+# Configuration
+.eslintrc
+.prettierrc
+.babelrc
+tsconfig.json
+
+# Build artifacts
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

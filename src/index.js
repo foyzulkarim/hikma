@@ -3,61 +3,33 @@ import { ChatSession } from './chat/ChatSession.js';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { Command } from 'commander';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { InquirerTabCompleter } from './utils/InquirerTabCompleter.js';
-
-// Load environment variables
-dotenv.config();
+import configManager from './config/ConfigManager.js';
+import setupConfigCommand from './commands/config.js';
 
 // Get directory name in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const configPath = path.join(__dirname, '..', 'config', 'config.json');
-
-// Default configuration
-const defaultConfig = {
-  ollama: {
-    baseUrl: 'http://localhost:11434/api',
-    defaultModel: 'llama3.2:latest'
-  },
-  memory: {
-    persistMemory: true,
-    maxMessages: 100,
-    summarizeThreshold: 50
-  },
-  settings: {
-    includeSystemPrompt: true,
-    systemPrompt: "You are a helpful assistant. Respond concisely and accurately.",
-    temperature: 0.7,
-    maxTokens: 30000
-  }
-};
-
-// Load configuration
-let config = defaultConfig;
-if (fs.existsSync(configPath)) {
-  try {
-    const configFile = fs.readFileSync(configPath, 'utf8');
-    config = { ...defaultConfig, ...JSON.parse(configFile) };
-  } catch (error) {
-    console.error(chalk.red(`Error loading configuration: ${error.message}`));
-  }
-}
 
 // Set up command line interface
 const program = new Command();
 
 program
-  .name('ollama-chat-memory')
+  .name('hikma')
   .description('Chat with Ollama LLM with conversation memory')
   .version('1.0.0');
 
+// Add configuration command
+setupConfigCommand(program);
+
+// Load configuration with command line options
 program
-  .option('-m, --model <model>', 'Specify the model to use', config.ollama.defaultModel)
-  .option('-t, --temperature <temperature>', 'Set the temperature (0.0-1.0)', parseFloat, config.settings.temperature)
-  .option('-p, --persist', 'Enable persistent memory storage', config.memory.persistMemory)
+  .option('-m, --model <model>', 'Specify the model to use')
+  .option('-u, --base-url <url>', 'Specify the Ollama API base URL')
+  .option('-t, --temperature <temperature>', 'Set the temperature (0.0-1.0)', parseFloat)
+  .option('-p, --persist', 'Enable persistent memory storage')
   .option('-s, --system <prompt>', 'Set a custom system prompt')
   .option('-n, --no-system', 'Disable system prompt')
   .option('-c, --config <path>', 'Path to config file');
@@ -66,12 +38,8 @@ program.parse();
 
 const options = program.opts();
 
-// Update config with command line options
-if (options.model) config.ollama.defaultModel = options.model;
-if (options.temperature) config.settings.temperature = options.temperature;
-if (options.persist !== undefined) config.memory.persistMemory = options.persist;
-if (options.system) config.settings.systemPrompt = options.system;
-if (options.noSystem === false) config.settings.includeSystemPrompt = false;
+// Load configuration with command line options
+const config = configManager.loadConfig(options);
 
 // Initialize chat session
 const chatSession = new ChatSession({
@@ -131,11 +99,12 @@ function displayHelp() {
   console.log(chalk.yellow('/delete <id>') + ' - Delete a conversation');
   console.log(chalk.yellow('/system <prompt>') + ' - Update the system prompt');
   console.log(chalk.yellow('/temp <value>') + ' - Update the temperature setting');
-  console.log(chalk.yellow('/model <name>') + ' - Change the model');
+  console.log(chalk.yellow('/model <n>') + ' - Change the model');
   console.log(chalk.yellow('/models') + ' - List all available models');
   console.log(chalk.yellow('/context') + ' - Manage context files and hooks for the chat session');
   console.log(chalk.yellow('/tools') + ' - List available tools');
   console.log(chalk.yellow('/usage') + ' - Display token usage statistics');
+  console.log(chalk.yellow('/config') + ' - Manage global configuration');
   console.log(chalk.yellow('/exit') + ' - Exit the chat');
   console.log('');
   console.log(chalk.cyan('Special Prefixes:'));
@@ -216,7 +185,7 @@ function displayContextTokens(contextManager, conversationId) {
 
 // Main chat loop
 async function startChat() {
-  console.log(chalk.cyan('\n=== Ollama Chat with Memory ==='));
+  console.log(chalk.cyan('\n=== Hikma Chat ==='));
   console.log(chalk.yellow('Type /help for available commands'));
   
   // Initialize the chat session
@@ -536,6 +505,13 @@ async function startChat() {
           console.log(chalk.yellow(`Completion tokens: ${tokenUsage.completionTokens.toLocaleString()}`));
           console.log(chalk.yellow(`Total tokens: ${tokenUsage.totalTokens.toLocaleString()}`));
           console.log(chalk.cyan('------------------------------\n'));
+          break;
+          
+        case 'config':
+          console.log(chalk.yellow('Use the config command outside the chat:'));
+          console.log(chalk.cyan('  hikma config get - Show current configuration'));
+          console.log(chalk.cyan('  hikma config set <key> <value> - Set configuration value'));
+          console.log(chalk.cyan('  hikma config init - Initialize global configuration'));
           break;
           
         default:

@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { InquirerTabCompleter } from './utils/InquirerTabCompleter.js';
 
 // Load environment variables
 dotenv.config();
@@ -133,7 +134,15 @@ function displayHelp() {
   console.log(chalk.yellow('/model <name>') + ' - Change the model');
   console.log(chalk.yellow('/models') + ' - List all available models');
   console.log(chalk.yellow('/context') + ' - Manage context files and hooks for the chat session');
+  console.log(chalk.yellow('/tools') + ' - List available tools');
+  console.log(chalk.yellow('/usage') + ' - Display token usage statistics');
   console.log(chalk.yellow('/exit') + ' - Exit the chat');
+  console.log('');
+  console.log(chalk.cyan('Special Prefixes:'));
+  console.log(chalk.yellow('!<command>') + ' - Execute a bash command');
+  console.log(chalk.yellow('gh:<command>') + ' - Execute a GitHub CLI command');
+  console.log(chalk.yellow('gh:pr list') + ' - List pull requests');
+  console.log(chalk.yellow('gh:pr view <number>') + ' - View a specific pull request');
   console.log('');
 }
 
@@ -224,18 +233,59 @@ async function startChat() {
     console.log(chalk.gray(`System: ${config.settings.systemPrompt}`));
   }
   
+  // Initialize tab completer
+  const tabCompleter = new InquirerTabCompleter();
+  
   // Main loop
   let chatActive = true;
   while (chatActive) {
-    const { userInput } = await inquirer.prompt({
-      type: 'input',
-      name: 'userInput',
+    // Use tab completer for input with command completion
+    const { userInput } = await tabCompleter.prompt({
       message: chalk.blue('You:'),
       prefix: ''
     });
     
+    // Process GitHub commands with gh: prefix
+    if (userInput.startsWith('gh:')) {
+      const ghQuery = userInput.slice(3).trim();
+      if (ghQuery) {
+        try {
+          console.log(chalk.gray(`Querying GitHub: ${ghQuery}`));
+          const { execSync } = await import('child_process');
+          
+          // Handle specific GitHub queries
+          if (ghQuery.startsWith('pr')) {
+            // Format: gh:pr list or gh:pr view <number>
+            const prCommand = `gh ${ghQuery}`;
+            console.log(chalk.gray(`Executing: ${prCommand}`));
+            const result = execSync(prCommand, { encoding: 'utf8' });
+            console.log(result);
+          } else {
+            // Default to passing the command to gh CLI
+            const result = execSync(`gh ${ghQuery}`, { encoding: 'utf8' });
+            console.log(result);
+          }
+        } catch (error) {
+          console.error(chalk.red(`Error executing GitHub command: ${error.message}`));
+        }
+      }
+    }
+    // Process bash commands with ! prefix
+    else if (userInput.startsWith('!')) {
+      const bashCommand = userInput.slice(1).trim();
+      if (bashCommand) {
+        try {
+          console.log(chalk.gray(`Executing: ${bashCommand}`));
+          const { execSync } = await import('child_process');
+          const result = execSync(bashCommand, { encoding: 'utf8' });
+          console.log(result);
+        } catch (error) {
+          console.error(chalk.red(`Error executing command: ${error.message}`));
+        }
+      }
+    }
     // Process commands
-    if (userInput.startsWith('/')) {
+    else if (userInput.startsWith('/')) {
       const parts = userInput.slice(1).split(' ');
       const command = parts[0].toLowerCase();
       const args = parts.slice(1).join(' ');
@@ -463,18 +513,48 @@ async function startChat() {
           chatActive = false;
           break;
           
+        case 'tools':
+          const toolManager = chatSession.getToolManager();
+          const tools = toolManager.getAllTools();
+          
+          console.log(chalk.cyan('\n--- Available Tools ---'));
+          if (tools.length === 0) {
+            console.log(chalk.gray('No tools available'));
+          } else {
+            tools.forEach(tool => {
+              console.log(`${chalk.yellow(tool.name)} - ${tool.description}`);
+              console.log(chalk.gray(`  Keywords: ${tool.keywords.join(', ')}`));
+            });
+          }
+          console.log('');
+          break;
+          
+        case 'usage':
+          const tokenUsage = chatSession.getTokenUsage();
+          console.log(chalk.cyan('\n--- Token Usage Statistics ---'));
+          console.log(chalk.yellow(`Prompt tokens: ${tokenUsage.promptTokens.toLocaleString()}`));
+          console.log(chalk.yellow(`Completion tokens: ${tokenUsage.completionTokens.toLocaleString()}`));
+          console.log(chalk.yellow(`Total tokens: ${tokenUsage.totalTokens.toLocaleString()}`));
+          console.log(chalk.cyan('------------------------------\n'));
+          break;
+          
         default:
           console.log(chalk.red(`Unknown command: ${command}`));
           console.log(chalk.yellow('Type /help for available commands'));
       }
     } else if (userInput.trim()) {
-      // Send message to Ollama
+      // Send message to Ollama (tool processing is handled inside ChatSession.sendMessage)
       console.log(chalk.gray('Assistant is thinking...'));
       
       const response = await chatSession.sendMessage(userInput);
       
       if (response.success) {
-        console.log(chalk.green(`Assistant: ${response.message.content}`));
+        if (response.isToolResult) {
+          console.log(chalk.green(`\nAssistant (using ${response.toolResult.toolName}):`));
+          console.log(response.toolResult.result);
+        } else {
+          console.log(chalk.green(`Assistant: ${response.message.content}`));
+        }
       } else {
         console.log(chalk.red(`Error: ${response.error}`));
       }

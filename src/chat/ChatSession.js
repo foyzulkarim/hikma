@@ -3,6 +3,7 @@ import { MemoryManager } from '../memory/MemoryManager.js';
 import { SqliteMemoryManager } from '../memory/SqliteMemoryManager.js';
 import { OllamaClient } from '../OllamaClient.js';
 import { ContextManager } from '../context/ContextManager.js';
+import { ToolManager } from '../tools/ToolManager.js';
 import EventEmitter from 'events';
 
 /**
@@ -24,6 +25,9 @@ export class ChatSession extends EventEmitter {
     
     // Initialize context manager
     this.context = new ContextManager();
+    
+    // Initialize tool manager
+    this.tools = new ToolManager();
     
     // Session settings
     this.settings = {
@@ -88,6 +92,29 @@ export class ChatSession extends EventEmitter {
       await this.initialize();
     }
     
+    // Check if this is a tool command
+    const toolResult = await this.processToolCommand(message);
+    if (toolResult && toolResult.success) {
+      // Add user message to memory
+      const userMessage = this.memory.addMessage('user', message, this.activeConversationId);
+      this.emit('messageSent', { message: userMessage });
+      
+      // Add tool result as assistant message
+      const assistantMessage = this.memory.addMessage(
+        'assistant', 
+        `[Tool: ${toolResult.toolName}]\n\n${toolResult.result}`, 
+        this.activeConversationId
+      );
+      this.emit('responseReceived', { message: assistantMessage });
+      
+      return {
+        success: true,
+        message: assistantMessage,
+        isToolResult: true,
+        toolResult
+      };
+    }
+    
     // Get context content and prepend to message if available
     const contextContent = await this.context.getFullContext(this.activeConversationId);
     const messageWithContext = contextContent ? contextContent + message : message;
@@ -112,7 +139,8 @@ export class ChatSession extends EventEmitter {
     const result = await this.ollama.generateChatCompletion(messagesWithContext, {
       model: this.settings.model,
       temperature: this.settings.temperature,
-      max_tokens: this.settings.maxTokens
+      max_tokens: this.settings.maxTokens,
+      availableTools: this.tools.getAllTools()
     });
     
     if (result.success) {
@@ -279,6 +307,38 @@ export class ChatSession extends EventEmitter {
    */
   getContextManager() {
     return this.context;
+  }
+  
+  /**
+   * Get token usage statistics
+   * @returns {Object} - Token usage statistics
+   */
+  getTokenUsage() {
+    return this.ollama.getTokenUsage();
+  }
+  
+  /**
+   * Reset token usage statistics
+   */
+  resetTokenUsage() {
+    this.ollama.resetTokenUsage();
+  }
+  
+  /**
+   * Get the tool manager
+   * @returns {ToolManager} - The tool manager instance
+   */
+  getToolManager() {
+    return this.tools;
+  }
+  
+  /**
+   * Process a message to check if it should be handled by a tool
+   * @param {String} message - The user message
+   * @returns {Promise<Object|null>} - Tool execution result or null if no tool matched
+   */
+  async processToolCommand(message) {
+    return await this.tools.executeToolFromPrompt(message);
   }
 }
 

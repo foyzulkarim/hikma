@@ -1,15 +1,31 @@
-# Hikma Monorepo
+# Hikma Platform
 
-This repository contains the full-stack implementation of the Hikma Agentic Code Intelligence Platform, structured as a monorepo.
+This repository contains the full-stack implementation of the Hikma Agentic Code Intelligence Platform, with independent client and server projects.
 
-It includes:
+## Project Structure
 
-- **`server/`**: The Fastify + TypeScript backend API.
-- **`client/`**: The React + TypeScript single-page application (SPA) client.
+- **`server/`**: The Fastify + TypeScript backend API - a complete independent Node.js project
+- **`client/`**: The React + TypeScript single-page application (SPA) - a complete independent React project
 
 ## Getting Started
 
-To set up and run the entire project, please refer to the detailed `README.md` files within each respective directory:
+Each project is completely independent and can be developed, built, and deployed separately:
+
+### Server
+```bash
+cd server
+npm install
+npm run dev
+```
+
+### Client
+```bash
+cd client
+npm install
+npm run dev
+```
+
+For detailed setup instructions, refer to the `README.md` files within each directory:
 
 - [**Server README**](./server/README.md)
 - [**Client README**](./client/README.md)
@@ -27,6 +43,3 @@ All comprehensive documentation, including setup guides, architecture details, A
 - [**UI Requirements**](./server/docs/UI_REQUIREMENTS.md)
 - [**API Documentation**](./server/docs/API_DOCUMENTATION.md)
 - [**User Guide**](./server/docs/USER_GUIDE.md)
-
-
-

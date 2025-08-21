@@ -1,0 +1,434 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Management
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  firstName String?
+  lastName  String?
+  role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  projects    ProjectMember[]
+  queryLogs   QueryLog[]
+  feedback    Feedback[]
+  apiKeys     ApiKey[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+}
+
+// API Key Management
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  keyHash     String    @unique
+  userId      String
+  isActive    Boolean   @default(true)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// Project Management
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  slug        String      @unique
+  status      ProjectStatus @default(ACTIVE)
+  settings    Json        @default("{}")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relationships
+  members       ProjectMember[]
+  dataSources   DataSource[]
+  queryLogs     QueryLog[]
+  syncJobs      SyncJob[]
+  knowledgeBase KnowledgeBase[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+model ProjectMember {
+  id        String    @id @default(cuid())
+  projectId String
+  userId    String
+  role      MemberRole
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relationships
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// Data Source Management
+model DataSource {
+  id          String           @id @default(cuid())
+  projectId   String
+  name        String
+  type        DataSourceType
+  config      Json
+  status      DataSourceStatus @default(PENDING)
+  lastSyncAt  DateTime?
+  nextSyncAt  DateTime?
+  errorCount  Int              @default(0)
+  lastError   String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  // Relationships
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  syncJobs    SyncJob[]
+  documents   Document[]
+
+  @@unique([projectId, name])
+  @@map("data_sources")
+}
+
+enum DataSourceType {
+  GIT
+  GITHUB
+  JIRA
+  SLACK
+  CONFLUENCE
+  FILE_UPLOAD
+}
+
+enum DataSourceStatus {
+  PENDING
+  ACTIVE
+  ERROR
+  DISABLED
+}
+
+// Sync Job Management
+model SyncJob {
+  id           String        @id @default(cuid())
+  projectId    String
+  dataSourceId String
+  type         SyncJobType
+  status       SyncJobStatus @default(PENDING)
+  progress     Float         @default(0)
+  totalItems   Int?
+  processedItems Int?
+  errorCount   Int           @default(0)
+  errors       Json          @default("[]")
+  metadata     Json          @default("{}")
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relationships
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dataSource DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+
+  @@map("sync_jobs")
+}
+
+enum SyncJobType {
+  FULL_SYNC
+  INCREMENTAL_SYNC
+  REINDEX
+  CLEANUP
+}
+
+enum SyncJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Knowledge Base
+model KnowledgeBase {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String?
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@unique([projectId, name])
+  @@map("knowledge_bases")
+}
+
+// Document Storage
+model Document {
+  id              String       @id @default(cuid())
+  knowledgeBaseId String
+  dataSourceId    String
+  externalId      String?
+  title           String
+  content         String
+  summary         String?
+  metadata        Json         @default("{}")
+  type            DocumentType
+  status          DocumentStatus @default(PENDING)
+  vectorId        String?
+  graphNodeId     String?
+  hash            String
+  size            Int
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Relationships
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  dataSource    DataSource    @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  chunks        DocumentChunk[]
+
+  @@unique([dataSourceId, externalId])
+  @@index([hash])
+  @@index([type])
+  @@index([status])
+  @@map("documents")
+}
+
+enum DocumentType {
+  CODE_FILE
+  COMMIT
+  PULL_REQUEST
+  ISSUE
+  COMMENT
+  WIKI_PAGE
+  SLACK_MESSAGE
+  JIRA_TICKET
+  CONFLUENCE_PAGE
+  MARKDOWN
+  TEXT
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  INDEXED
+  ERROR
+  ARCHIVED
+}
+
+// Document Chunking
+model DocumentChunk {
+  id         String   @id @default(cuid())
+  documentId String
+  chunkIndex Int
+  content    String
+  metadata   Json     @default("{}")
+  vectorId   String?
+  embedding  Float[]?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relationships
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([vectorId])
+  @@map("document_chunks")
+}
+
+// Query and Response Logging
+model QueryLog {
+  id          String      @id @default(cuid())
+  projectId   String
+  userId      String?
+  sessionId   String?
+  query       String
+  intent      String?
+  entities    Json        @default("{}")
+  pipeline    String?
+  response    String?
+  status      QueryStatus @default(PENDING)
+  duration    Int?
+  tokenUsage  Json        @default("{}")
+  metadata    Json        @default("{}")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relationships
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  feedback  Feedback[]
+  toolCalls ToolCall[]
+
+  @@index([projectId, createdAt])
+  @@index([userId])
+  @@index([status])
+  @@map("query_logs")
+}
+
+enum QueryStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Tool Call Logging
+model ToolCall {
+  id          String   @id @default(cuid())
+  queryLogId  String
+  toolName    String
+  inputs      Json
+  outputs     Json?
+  duration    Int?
+  status      String
+  error       String?
+  createdAt   DateTime @default(now())
+
+  // Relationships
+  queryLog QueryLog @relation(fields: [queryLogId], references: [id], onDelete: Cascade)
+
+  @@map("tool_calls")
+}
+
+// Feedback System
+model Feedback {
+  id         String       @id @default(cuid())
+  queryLogId String
+  userId     String
+  type       FeedbackType
+  rating     Int?
+  comment    String?
+  metadata   Json         @default("{}")
+  createdAt  DateTime     @default(now())
+
+  // Relationships
+  queryLog QueryLog @relation(fields: [queryLogId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([queryLogId, userId])
+  @@map("feedback")
+}
+
+enum FeedbackType {
+  THUMBS_UP
+  THUMBS_DOWN
+  RATING
+  COMMENT
+}
+
+// Analytics and Metrics
+model Metric {
+  id        String   @id @default(cuid())
+  name      String
+  value     Float
+  labels    Json     @default("{}")
+  timestamp DateTime @default(now())
+
+  @@index([name, timestamp])
+  @@map("metrics")
+}
+
+// Configuration Storage
+model Configuration {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("configurations")
+}
+
+// Webhook Management
+model Webhook {
+  id          String        @id @default(cuid())
+  projectId   String?
+  name        String
+  url         String
+  secret      String?
+  events      String[]
+  status      WebhookStatus @default(ACTIVE)
+  lastTriggeredAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@map("webhooks")
+}
+
+enum WebhookStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+}
+
+model WebhookDelivery {
+  id          String                @id @default(cuid())
+  webhookId   String
+  event       String
+  payload     Json
+  status      WebhookDeliveryStatus @default(PENDING)
+  attempts    Int                   @default(0)
+  lastAttempt DateTime?
+  response    Json?
+  createdAt   DateTime              @default(now())
+
+  // Relationships
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_deliveries")
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+

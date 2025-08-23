@@ -31,7 +31,6 @@ This document outlines the architectural refactoring plan for Hikma, transitioni
 ### Strengths to Preserve
 - Clear `core/`, `infrastructure/`, and `config/` separation
 - Good use of TypeScript and modern tooling
-- Comprehensive testing structure
 - Docker-based deployment approach
 
 ---
@@ -402,11 +401,9 @@ hikma/
 3. Remove old `modules/` structure
 4. Update all imports and dependencies
 
-### Phase 6: Testing & Documentation (Week 11-12)
-1. Update all tests to match new structure
-2. Update documentation and API specs
-3. Performance testing and optimization
-4. Final cleanup and validation
+### Phase 6: Documentation (Week 11-12)
+1. Update documentation and API specs
+2. Final cleanup and validation
 
 ---
 
@@ -417,7 +414,6 @@ hikma/
 2. **Dependency Inversion**: Depend on abstractions, not concretions
 3. **Interface Segregation**: Small, focused interfaces
 4. **Event-Driven**: Loose coupling through events
-5. **Testability**: Easy to mock and test in isolation
 
 ### Naming Conventions
 - **Services**: `*-service.ts` (e.g., `agent-service.ts`)
@@ -459,7 +455,6 @@ eventBus.on('query-processed', async (event) => {
 
 ### Technical Metrics
 - **Reduced Coupling**: Fewer cross-module dependencies
-- **Improved Testability**: Higher test coverage, easier mocking
 - **Better Performance**: Faster build times, optimized imports
 - **Code Quality**: Lower complexity scores, better maintainability
 
@@ -480,15 +475,13 @@ eventBus.on('query-processed', async (event) => {
 ## Risk Mitigation
 
 ### Technical Risks
-- **Breaking Changes**: Comprehensive testing during migration
-- **Performance Regression**: Benchmarking before/after
-- **Import Complexity**: Automated tooling for import updates
+- **Breaking Changes**: Run build after each step to ensure no ts error
 - **Team Coordination**: Clear communication and documentation
 
 ### Mitigation Strategies
 - **Feature Flags**: Gradual rollout of new structure
 - **Parallel Development**: Keep old structure until migration complete
-- **Automated Testing**: Extensive test coverage during transition
+- **Build**: Run build after each step to ensure no ts error
 - **Code Reviews**: Peer validation of architectural decisions
 
 ---

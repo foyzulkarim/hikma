@@ -4,10 +4,10 @@
   "description": "Hikma Agentic Code Intelligence Platform - Server",
   "private": true,
   "type": "module",
-  "main": "dist/server.js",
+  "main": "dist/app/server.js",
   "scripts": {
-    "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts",
+    "start": "node dist/app/server.js",
+    "dev": "tsx watch src/app/server.ts",
     "build": "node esbuild.config.js",
     "build:clean": "rm -rf dist && npm run build",
     "test": "vitest run",

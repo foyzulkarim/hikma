@@ -18,7 +18,7 @@ for (const [key, value] of Object.entries(paths)) {
 }
 
 const buildOptions = {
-  entryPoints: ['src/server.ts'],
+  entryPoints: ['src/app/server.ts'],
   bundle: true,
   outdir: 'dist',
   platform: 'node',

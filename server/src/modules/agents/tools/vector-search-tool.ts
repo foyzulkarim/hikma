@@ -2,15 +2,15 @@ import {
   ITool,
   ToolType,
   PipelineContext,
-} from '@/core/types/agents.js';
+} from '@/core/types/agents';
 import {
   VectorSearchOptions,
   VectorSearchResponse,
   VectorFilter,
-} from '@/core/types/embeddings.js';
-import { vectorSearchService } from '@/modules/knowledge/services/vector-search.js';
-import { logger } from '@/core/utils/logger.js';
-import { ValidationError } from '@/core/errors/app-error.js';
+} from '@/core/types/embeddings';
+import { vectorSearchService } from '@/modules/knowledge/services/vector-search';
+import { logger } from '@/core/utils/logger';
+import { ValidationError } from '@/core/errors/app-error';
 
 // Vector search tool input interface
 export interface VectorSearchInput {
@@ -114,7 +114,7 @@ export class VectorSearchTool implements ITool {
       return output;
 
     } catch (error) {
-      const executionTime = Date.Now() - startTime;
+      const executionTime = Date.now() - startTime;
 
       logger.error({
         query: input.query.substring(0, 100),
@@ -432,7 +432,5 @@ export class VectorSearchTool implements ITool {
 
 // Export singleton instance
 export const vectorSearchTool = new VectorSearchTool();
-
-export { VectorSearchTool };
 
 

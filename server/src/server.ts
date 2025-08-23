@@ -1,23 +1,37 @@
+import 'dotenv/config';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { config } from './config/app.js';
-import { logger } from './core/utils/logger.js';
-import { globalErrorHandler } from './modules/interfaces/api/middleware/error-handler.js';
-import { authMiddleware } from './modules/interfaces/api/middleware/auth.js';
-import { loggingMiddleware } from './modules/interfaces/api/middleware/logging.js';
-import { rateLimitMiddleware } from './modules/interfaces/api/middleware/rate-limit.js';
+import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
+import { config } from '@/config/app';
+import { logger } from '@/core/utils/logger';
+import { globalErrorHandler } from '@/modules/api/middleware/error-handler';
+import { 
+  correlationIdMiddleware,
+  requestLoggingMiddleware 
+} from '@/modules/api/middleware/logging';
+
+// Extend Fastify instance with custom decorators
+declare module 'fastify' {
+  interface FastifyInstance {
+    authenticate: any;
+    eventBus: any;
+    prisma: any;
+  }
+}
 
 // Import route handlers
-import { queryRoutes } from './modules/interfaces/api/routes/query.js';
-import { projectRoutes } from './modules/interfaces/api/routes/project.js';
-import { healthRoutes } from './modules/interfaces/api/routes/health.js';
-import { authRoutes } from './modules/interfaces/api/routes/auth.js';
+import { queryRoutes } from '@/modules/api/routes/query';
+import { projectRoutes } from '@/modules/domains/projects';
+import { healthRoutes } from '@/modules/api/routes/health';
+import { userRoutes } from '@/modules/domains/users';
 
 // Import services for initialization
-import { knowledgeService } from './modules/knowledge/services/index.js';
-import { agentOrchestrator } from './modules/agents/services/index.js';
+import { knowledgeService } from '@/modules/knowledge/services/index';
 
 // Server configuration
 interface ServerConfig {
@@ -31,14 +45,14 @@ export async function createServer(serverConfig?: Partial<ServerConfig>): Promis
   const finalConfig: ServerConfig = {
     host: '0.0.0.0',
     port: config.server.port,
-    environment: config.environment,
+    environment: config.server.environment,
     ...serverConfig,
   };
 
   // Create Fastify instance with logging
   const server = Fastify({
     logger: {
-      level: config.logging.level,
+      level: config.server.logLevel,
       serializers: {
         req: (req) => ({
           method: req.method,
@@ -53,8 +67,8 @@ export async function createServer(serverConfig?: Partial<ServerConfig>): Promis
         res: (res) => ({
           statusCode: res.statusCode,
           headers: {
-            'content-type': res.getHeader('content-type'),
-            'content-length': res.getHeader('content-length'),
+            'content-type': res.getHeader?.('content-type') || 'unknown',
+            'content-length': res.getHeader?.('content-length') || '0',
           },
         }),
       },
@@ -82,14 +96,85 @@ export async function createServer(serverConfig?: Partial<ServerConfig>): Promis
 
 // Register Fastify plugins
 async function registerPlugins(server: FastifyInstance): Promise<void> {
+  // Swagger documentation
+  await server.register(swagger, {
+    openapi: {
+      openapi: '3.0.0',
+      info: {
+        title: 'Hikma API',
+        description: 'Agentic Code Intelligence Platform API',
+        version: '1.0.0',
+        contact: {
+          name: 'Hikma Team',
+          email: 'support@hikma.ai',
+        },
+        license: {
+          name: 'MIT',
+          url: 'https://opensource.org/licenses/MIT',
+        },
+      },
+      servers: [
+        {
+          url: 'http://localhost:3000',
+          description: 'Development server',
+        },
+        {
+          url: 'https://api.hikma.ai',
+          description: 'Production server',
+        },
+      ],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+          },
+          apiKey: {
+            type: 'apiKey',
+            name: 'X-API-Key',
+            in: 'header',
+          },
+        },
+      },
+      security: [
+        {
+          bearerAuth: [],
+        },
+      ],
+    },
+  });
+
+  // Swagger UI
+  await server.register(swaggerUi, {
+    routePrefix: '/documentation',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: false,
+    },
+    uiHooks: {
+      onRequest: function (request, reply, next) {
+        next();
+      },
+      preHandler: function (request, reply, next) {
+        next();
+      },
+    },
+    staticCSP: true,
+    transformStaticCSP: (header) => header,
+    transformSpecification: (swaggerObject, request, reply) => {
+      return swaggerObject;
+    },
+    transformSpecificationClone: true,
+  });
   // CORS
   await server.register(cors, {
     origin: (origin, callback) => {
       // Allow all origins in development, specific origins in production
-      if (config.environment === 'development') {
+      if (config.server.environment === 'development') {
         callback(null, true);
       } else {
-        const allowedOrigins = config.server.allowedOrigins || [];
+        const allowedOrigins = config.security.corsOrigins || [];
         if (!origin || allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
@@ -107,9 +192,11 @@ async function registerPlugins(server: FastifyInstance): Promise<void> {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         imgSrc: ["'self'", 'data:', 'https:'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        connectSrc: ["'self'"],
       },
     },
     hsts: {
@@ -119,10 +206,28 @@ async function registerPlugins(server: FastifyInstance): Promise<void> {
     },
   });
 
+  // Cookie support
+  await server.register(cookie, {
+    secret: config.security.jwtSecret,
+    parseOptions: {
+      httpOnly: true,
+      secure: config.server.environment === 'production',
+      sameSite: 'strict',
+    },
+  });
+
+  // Multipart support for file uploads
+  await server.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+      files: 5,
+    },
+  });
+
   // Rate limiting
   await server.register(rateLimit, {
-    max: config.server.rateLimit.max,
-    timeWindow: config.server.rateLimit.timeWindow,
+    max: config.rateLimit.max,
+    timeWindow: config.rateLimit.windowMs,
     skipOnError: true,
     keyGenerator: (request) => {
       // Use user ID if authenticated, otherwise IP
@@ -140,14 +245,33 @@ async function registerPlugins(server: FastifyInstance): Promise<void> {
 
 // Register middleware
 async function registerMiddleware(server: FastifyInstance): Promise<void> {
-  // Logging middleware
-  server.addHook('onRequest', loggingMiddleware);
+  // Import dependencies
+  const { createRequireAuth, UserRepository, AuthService } = await import('@/modules/domains/users');
+  const { prisma } = await import('@/config/prisma-client');
+  
+  // Add decorators
+  server.decorate('prisma', prisma);
+  server.decorate('eventBus', {
+    emit: (event: string, payload: any) => {
+      logger.debug({ event, payload }, 'Event emitted');
+    }
+  });
+  
+  // Initialize auth dependencies
+  const repository = new UserRepository(server.prisma);
+  const authService = new AuthService(repository, server.eventBus);
+  const requireAuth = createRequireAuth(authService);
+  
+  // Register authenticate decorator
+  server.decorate('authenticate', requireAuth);
+  
+  // Correlation ID middleware
+  server.addHook('onRequest', correlationIdMiddleware);
 
-  // Rate limiting middleware (custom implementation for more control)
-  server.addHook('preHandler', rateLimitMiddleware);
+  // Request logging middleware
+  server.addHook('onRequest', requestLoggingMiddleware.preHandler);
 
-  // Authentication middleware (applied selectively to routes)
-  server.decorate('authenticate', authMiddleware);
+  // Rate limiting is already registered above with @fastify/rate-limit
 }
 
 // Register routes
@@ -156,7 +280,7 @@ async function registerRoutes(server: FastifyInstance): Promise<void> {
   await server.register(healthRoutes, { prefix: '/api/v1/health' });
 
   // Authentication routes
-  await server.register(authRoutes, { prefix: '/api/v1/auth' });
+  await server.register(userRoutes, { prefix: '/api/v1/auth' });
 
   // Query routes (auth required)
   await server.register(queryRoutes, { prefix: '/api/v1/query' });
@@ -176,8 +300,16 @@ async function registerRoutes(server: FastifyInstance): Promise<void> {
         query: '/api/v1/query',
         projects: '/api/v1/projects',
       },
-      documentation: 'https://docs.hikma.ai',
+      documentation: {
+        swagger: '/documentation',
+        openapi: '/documentation/json',
+      },
     };
+  });
+
+  // Redirect /docs to /documentation for convenience
+  server.get('/docs', async (request, reply) => {
+    reply.redirect('/documentation');
   });
 
   // Root route
@@ -187,7 +319,7 @@ async function registerRoutes(server: FastifyInstance): Promise<void> {
       version: '1.0.0',
       status: 'running',
       timestamp: new Date().toISOString(),
-      environment: config.environment,
+      environment: config.server.environment,
     };
   });
 }
@@ -217,7 +349,8 @@ async function initializeServices(): Promise<void> {
     await knowledgeService.initialize();
 
     // Initialize agent orchestrator
-    await agentOrchestrator.initialize();
+    // TODO: Implement agent orchestrator
+    // await agentOrchestrator.initialize();
 
     logger.info('All services initialized successfully');
   } catch (error) {
@@ -235,7 +368,8 @@ async function cleanupServices(): Promise<void> {
     await knowledgeService.cleanup();
 
     // Cleanup agent orchestrator
-    await agentOrchestrator.cleanup();
+    // TODO: Implement agent orchestrator
+    // await agentOrchestrator.cleanup();
 
     logger.info('All services cleaned up successfully');
   } catch (error) {
@@ -255,7 +389,7 @@ export async function startServer(serverConfig?: Partial<ServerConfig>): Promise
     const finalConfig: ServerConfig = {
       host: '0.0.0.0',
       port: config.server.port,
-      environment: config.environment,
+      environment: config.server.environment,
       ...serverConfig,
     };
 

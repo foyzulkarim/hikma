@@ -5,10 +5,10 @@ import {
   EmbeddingResponse,
   EmbeddingModel,
   EmbeddingConfig,
-} from '@/core/types/embeddings.js';
-import { config } from '@/config/app.js';
-import { logger } from '@/core/utils/logger.js';
-import { ExternalServiceError, RateLimitError } from '@/core/errors/app-error.js';
+} from '@/core/types/embeddings';
+import { config } from '@/config/app';
+import { logger } from '@/core/utils/logger';
+import { ExternalServiceError, RateLimitError } from '@/core/errors/app-error';
 
 // Token estimation utility
 class TokenEstimator {
@@ -112,8 +112,7 @@ export class OpenAIEmbeddingService implements IEmbeddingService {
 
   constructor() {
     this.client = new OpenAI({
-      apiKey: config.llm.openai.apiKey,
-      baseURL: config.llm.openai.baseUrl,
+      apiKey: config.llm.apiKey,
     });
 
     // Initialize model configurations
@@ -153,6 +152,28 @@ export class OpenAIEmbeddingService implements IEmbeddingService {
   }
 
   async generateEmbeddings(request: EmbeddingRequest): Promise<EmbeddingResponse> {
+    // Check if we should mock external APIs for development
+    if (process.env.DEV_MOCK_EXTERNAL_APIS === 'true') {
+      const model = request.model || EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL;
+      const modelConfig = this.getModelInfo(model);
+      
+      // Return mock embeddings
+      const mockEmbeddings = request.texts.map(() => 
+        Array.from({ length: modelConfig.dimensions }, () => Math.random() - 0.5)
+      );
+      
+      logger.info({ model, textCount: request.texts.length }, 'Generated mock embeddings for development');
+      
+      return {
+        embeddings: mockEmbeddings,
+        model,
+        usage: {
+          promptTokens: request.texts.reduce((sum, text) => sum + this.estimateTokens(text), 0),
+          totalTokens: request.texts.reduce((sum, text) => sum + this.estimateTokens(text), 0),
+        },
+      };
+    }
+
     const model = request.model || EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL;
     const modelConfig = this.getModelInfo(model);
 
@@ -324,6 +345,12 @@ export class OpenAIEmbeddingService implements IEmbeddingService {
   // Utility methods for service management
   async testConnection(): Promise<boolean> {
     try {
+      // Return true immediately if mocking is enabled
+      if (process.env.DEV_MOCK_EXTERNAL_APIS === 'true') {
+        logger.info('Embedding service connection test passed (mocked)');
+        return true;
+      }
+      
       await this.generateEmbedding('test', EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL);
       return true;
     } catch (error) {
@@ -394,5 +421,5 @@ export class OpenAIEmbeddingService implements IEmbeddingService {
 // Export singleton instance
 export const embeddingService = new OpenAIEmbeddingService();
 
-export { OpenAIEmbeddingService, TokenEstimator, RateLimiter };
+export { TokenEstimator, RateLimiter };
 

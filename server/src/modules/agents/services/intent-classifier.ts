@@ -3,10 +3,10 @@ import {
   IntentClassification,
   AgentContext,
   LLMMessage,
-} from '@/core/types/agents.js';
-import { llmService } from './llm-service.js';
-import { logger } from '@/core/utils/logger.js';
-import { ValidationError } from '@/core/errors/app-error.js';
+} from '@/core/types/agents';
+import { llmService } from './llm-service';
+import { logger } from '@/core/utils/logger';
+import { ValidationError } from '@/core/errors/app-error';
 
 // Intent classification patterns
 interface IntentPattern {
@@ -492,6 +492,4 @@ Response: {"intent": "DOCUMENTATION_SEARCH", "confidence": 0.9, "reasoning": "Us
 
 // Export singleton instance
 export const intentClassifier = new IntentClassificationService();
-
-export { IntentClassificationService };
 

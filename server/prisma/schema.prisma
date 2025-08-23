@@ -73,6 +73,7 @@ model Project {
   queryLogs     QueryLog[]
   syncJobs      SyncJob[]
   knowledgeBase KnowledgeBase[]
+  webhooks      Webhook[]
 
   @@map("projects")
 }
@@ -265,7 +266,7 @@ model DocumentChunk {
   content    String
   metadata   Json     @default("{}")
   vectorId   String?
-  embedding  Float[]?
+  embedding  Float[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

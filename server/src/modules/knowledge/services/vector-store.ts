@@ -1,4 +1,4 @@
-import { QdrantClient } from '@qdrant/qdrant-client';
+import { QdrantClient } from '@qdrant/js-client-rest';
 import {
   IVectorStore,
   VectorStoreConfig,
@@ -10,10 +10,11 @@ import {
   VectorOperation,
   VectorOperationError,
   VectorStoreStats,
-} from '@/core/types/embeddings.js';
-import { config } from '@/config/app.js';
-import { logger } from '@/core/utils/logger.js';
-import { ExternalServiceError } from '@/core/errors/app-error.js';
+  VectorMetadata,
+} from '@/core/types/embeddings';
+import { config } from '@/config/app';
+import { logger } from '@/core/utils/logger';
+import { ExternalServiceError } from '@/core/errors/app-error';
 
 // Qdrant vector store implementation
 export class QdrantVectorStore implements IVectorStore {
@@ -26,12 +27,21 @@ export class QdrantVectorStore implements IVectorStore {
   constructor(private storeConfig: VectorStoreConfig) {
     this.collectionName = storeConfig.indexName; // Qdrant uses collectionName instead of indexName
     this.dimensions = storeConfig.dimensions;
-    this.distance = storeConfig.metric; // Qdrant uses distance instead of metric
+    this.distance = this.mapDistanceMetric(storeConfig.metric); // Map to Qdrant distance format
 
     this.client = new QdrantClient({
-      url: storeConfig.url || config.vectorDb.qdrant.url,
-      apiKey: storeConfig.apiKey || config.vectorDb.qdrant.apiKey,
+      url: storeConfig.baseUrl || config.vectorDb.url,
+      apiKey: storeConfig.apiKey || config.vectorDb.apiKey,
     });
+  }
+
+  private mapDistanceMetric(metric: string): string {
+    const metricMap: Record<string, string> = {
+      'cosine': 'Cosine',
+      'euclidean': 'Euclid',
+      'dotproduct': 'Dot'
+    };
+    return metricMap[metric] || 'Cosine';
   }
 
   async connect(): Promise<void> {
@@ -49,7 +59,7 @@ export class QdrantVectorStore implements IVectorStore {
         await this.client.createCollection(this.collectionName, {
           vectors: {
             size: this.dimensions,
-            distance: this.distance as any,
+            distance: this.distance as "Cosine" | "Euclid" | "Dot" | "Manhattan",
           },
         });
         logger.info(`Collection '${this.collectionName}' created successfully.`);
@@ -86,8 +96,9 @@ export class QdrantVectorStore implements IVectorStore {
 
   async testConnection(): Promise<boolean> {
     try {
-      const health = await this.client.healthCheck();
-      return health.status === 'ok';
+      // Try to get collections as a health check since healthCheck might not exist
+      await this.client.getCollections();
+      return true;
     } catch (error) {
       logger.error({
         collectionName: this.collectionName,
@@ -99,16 +110,19 @@ export class QdrantVectorStore implements IVectorStore {
 
   async createIndex(config: VectorStoreConfig): Promise<void> {
     try {
+      const qdrantDistance = this.mapDistanceMetric(config.metric);
+      
       logger.info({
         collectionName: config.indexName,
         dimensions: config.dimensions,
         metric: config.metric,
+        qdrantDistance,
       }, 'Creating Qdrant collection');
 
       await this.client.createCollection(config.indexName, {
         vectors: {
           size: config.dimensions,
-          distance: config.metric as any,
+          distance: qdrantDistance as "Cosine" | "Euclid" | "Dot" | "Manhattan",
         },
       });
 
@@ -211,7 +225,7 @@ export class QdrantVectorStore implements IVectorStore {
         batch: {
           ids: points.map(p => p.id),
           vectors: points.map(p => p.vector),
-          payloads: points.map(p => p.payload),
+          payloads: points.map(p => p.payload as unknown as Record<string, unknown>),
         },
       });
 
@@ -248,7 +262,7 @@ export class QdrantVectorStore implements IVectorStore {
           error: error instanceof Error ? error.message : 'Unknown error',
           code: 'UPSERT_FAILED',
           details: error,
-        }],
+        }] as VectorOperationError[],
         executionTime,
       };
     }
@@ -315,13 +329,13 @@ export class QdrantVectorStore implements IVectorStore {
       const response = await this.client.retrieve(this.collectionName, {
         ids: ids,
         with_payload: true,
-        with_vectors: true,
+        with_vector: true,
       });
 
       const vectors: VectorRecord[] = response.map(point => ({
         id: point.id as string,
         values: point.vector as number[],
-        metadata: point.payload || {},
+        metadata: (point.payload as unknown) as VectorMetadata || {} as VectorMetadata,
       }));
 
       logger.debug({
@@ -358,11 +372,11 @@ export class QdrantVectorStore implements IVectorStore {
       const qdrantFilter = query.filter ? { must: Object.entries(query.filter).map(([key, value]) => ({ key, match: { value } })) } : undefined;
 
       const response = await this.client.search(this.collectionName, {
-        vector: query.vector,
+        vector: query.vector || [],
         limit: query.topK,
         filter: qdrantFilter,
         with_payload: query.includeMetadata !== false,
-        with_vectors: query.includeValues || false,
+        with_vector: query.includeValues || false,
       });
 
       // Convert results
@@ -581,7 +595,7 @@ export class QdrantVectorStore implements IVectorStore {
         points: [
           {
             id: id,
-            vector: values,
+            vector: values || [],
             payload: metadata,
           },
         ],
@@ -597,6 +611,30 @@ export class QdrantVectorStore implements IVectorStore {
       );
     } catch (error) {
       logger.error({ error, id, options }, 'Failed to update vector in Qdrant');
+      throw error;
+    }
+  }
+
+  async getNamespaceStats(namespace: string): Promise<VectorStoreStats> {
+    try {
+      const info = await this.client.getCollection(this.collectionName);
+      
+      return {
+        totalVectors: info.points_count || 0,
+        dimensions: typeof info.config?.params?.vectors?.size === 'number' 
+          ? info.config.params.vectors.size 
+          : (info.config?.params?.vectors?.size as any)?.size || 0,
+        indexSize: 0, // Qdrant doesn't provide this directly
+        namespaces: [namespace],
+        lastUpdated: new Date(),
+        metrics: {
+          queriesPerSecond: 0,
+          averageQueryLatency: 0,
+          indexUtilization: 0,
+        },
+      };
+    } catch (error) {
+      logger.error({ error, namespace }, 'Failed to get namespace stats');
       throw error;
     }
   }

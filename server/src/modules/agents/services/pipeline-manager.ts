@@ -10,11 +10,11 @@ import {
   ToolType,
   ToolCall,
   ResponseSource,
-} from '@/core/types/agents.js';
-import { vectorSearchTool } from '../tools/vector-search-tool.js';
-import { llmService } from './llm-service.js';
-import { logger } from '@/core/utils/logger.js';
-import { ValidationError, ProcessingError } from '@/core/errors/app-error.js';
+} from '@/core/types/agents';
+import { vectorSearchTool } from '../tools/vector-search-tool';
+import { llmService } from './llm-service';
+import { logger } from '@/core/utils/logger';
+import { ValidationError, ProcessingError } from '@/core/errors/app-error';
 
 // Pipeline execution result
 interface PipelineExecutionResult {
@@ -661,6 +661,4 @@ Focus on the most relevant and important changes.`;
 
 // Export singleton instance
 export const pipelineManager = new PipelineManager();
-
-export { PipelineManager };
 

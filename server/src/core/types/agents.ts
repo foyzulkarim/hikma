@@ -303,29 +303,3 @@ export interface AgentEventData {
   error?: string;
 }
 
-// Export all types
-export type {
-  AgentQuery,
-  AgentContext,
-  ConversationMessage,
-  UserPreferences,
-  ProjectContext,
-  AgentResponse,
-  ResponseSource,
-  ToolCall,
-  IntentClassification,
-  PipelineContext,
-  PipelineStep,
-  PipelineDefinition,
-  ITool,
-  IAgentService,
-  ILLMService,
-  LLMOptions,
-  LLMMessage,
-  LLMFunction,
-  LLMFunctionCall,
-  AgentMetrics,
-  AgentConfig,
-  AgentEventData,
-};
-

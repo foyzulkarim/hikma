@@ -49,10 +49,8 @@ NEO4J_URI="bolt://localhost:7687"
 NEO4J_USERNAME="neo4j"
 NEO4J_PASSWORD="hikma123"
 
-# Vector Database (Pinecone)
-PINECONE_API_KEY="your-pinecone-api-key"
-PINECONE_ENVIRONMENT="your-pinecone-environment"
-PINECONE_INDEX_NAME="hikma-index"
+# Vector Database
+# Pinecone is no longer used - using alternative vector store
 
 # LLM Configuration (OpenAI)
 OPENAI_API_KEY="your-openai-api-key"
@@ -96,11 +94,10 @@ npx prisma db push
 npx prisma db seed
 ```
 
-### Step 5: Setup Pinecone Index
+### Step 5: Vector Database Setup
 
-1. **Login to Pinecone Console**: https://app.pinecone.io/
-2. **Create a new index** with these settings:
-   - **Index Name**: `hikma-index` (or match your .env)
+The application now uses an alternative vector store (no longer Pinecone).
+Vector database configuration will be handled automatically.
    - **Dimensions**: `1536` (for OpenAI ada-002 embeddings)
    - **Metric**: `cosine`
    - **Pod Type**: `p1.x1` (free tier)

@@ -16,9 +16,9 @@ import {
   ConnectorEvent,
   ConnectorEventData,
   SyncError,
-} from '@/core/types/connectors.js';
-import { logger } from '@/core/utils/logger.js';
-import { SecureRandomUtils } from '@/core/utils/crypto.js';
+} from '@/core/types/connectors';
+import { logger } from '@/core/utils/logger';
+import { SecureRandomUtils } from '@/core/utils/crypto';
 
 // Base connector implementation
 export abstract class BaseConnector extends EventEmitter implements IConnector {
@@ -409,6 +409,4 @@ export abstract class BaseConnector extends EventEmitter implements IConnector {
     };
   }
 }
-
-export { BaseConnector };
 

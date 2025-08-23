@@ -5,10 +5,9 @@ import {
   LLMMessage,
   LLMFunction,
   LLMFunctionCall,
-} from '@/core/types/agents.js';
-import { config } from '@/config/app.js';
-import { logger } from '@/core/utils/logger.js';
-import { ExternalServiceError, RateLimitError } from '@/core/errors/app-error.js';
+} from '@/core/types/agents';
+import { logger } from '@/core/utils/logger';
+import { ExternalServiceError, RateLimitError } from '@/core/errors/app-error';
 
 // Token estimation utility
 class LLMTokenEstimator {
@@ -55,11 +54,11 @@ export class OpenAILLMService implements ILLMService {
 
   constructor() {
     this.client = new OpenAI({
-      apiKey: config.llm.openai.apiKey,
-      baseURL: config.llm.openai.baseUrl,
+      apiKey: process.env.OPENAI_API_KEY || '',
+      baseURL: process.env.OPENAI_API_BASE || 'https://api.openai.com/v1',
     });
 
-    this.defaultModel = config.llm.openai.model || 'gpt-3.5-turbo';
+    this.defaultModel = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
     this.defaultOptions = {
       model: this.defaultModel,
       temperature: 0.7,
@@ -514,5 +513,6 @@ Always provide accurate and helpful responses based on the available context.`,
 // Export singleton instance
 export const llmService = new OpenAILLMService();
 
-export { OpenAILLMService, LLMTokenEstimator };
+// Export the token estimator class
+export { LLMTokenEstimator };
 

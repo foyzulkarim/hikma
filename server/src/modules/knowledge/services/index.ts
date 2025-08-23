@@ -1,40 +1,52 @@
-// Embedding service
-export {
-  OpenAIEmbeddingService,
-  embeddingService,
-  TokenEstimator,
-  RateLimiter,
-} from './embedding-service.js';
+import { QdrantVectorStore } from './vector-store';
+import { DocumentProcessor } from './document-processor';
+import { VectorSearchService } from './vector-search';
+import { VectorStoreType } from '@/core/types/embeddings';
+import type { IEmbeddingService, IVectorStore, IDocumentProcessor, IVectorSearchService, VectorStoreConfig } from '@/core/types/embeddings';
 
-// Vector store
-export {
-  PineconeVectorStore,
-  vectorStore,
-} from './vector-store.js';
+// Re-export services
+import { embeddingService } from './embedding-service';
+export { embeddingService };
+export { QdrantVectorStore } from './vector-store';
+export { DocumentProcessor } from './document-processor';
+export { VectorSearchService } from './vector-search';
 
-// Document processor
-export {
-  DocumentProcessor,
-  documentProcessor,
-  TextChunker,
-} from './document-processor.js';
+// Re-export types
+export type { IEmbeddingService, IVectorStore, IDocumentProcessor, IVectorSearchService } from '@/core/types/embeddings';
 
-// Vector search
-export {
-  VectorSearchService,
-  vectorSearchService,
-  SearchResultRanker,
-  KeywordSearcher,
-} from './vector-search.js';
+// Default vector store configuration
+const defaultVectorStoreConfig: VectorStoreConfig = {
+  type: VectorStoreType.QDRANT,
+  indexName: process.env.QDRANT_COLLECTION_NAME || 'hikma-embeddings',
+  dimensions: parseInt(process.env.QDRANT_DIMENSION || '1536', 10),
+  metric: 'cosine',
+  apiKey: process.env.QDRANT_API_KEY || '',
+  baseUrl: process.env.QDRANT_URL || 'http://localhost:6333'
+};
+
+// Service instances
+export const vectorStore = new QdrantVectorStore(defaultVectorStoreConfig);
+export const documentProcessor = new DocumentProcessor();
+export const vectorSearchService = new VectorSearchService();
 
 // Knowledge service orchestrator
 export class KnowledgeService {
+  private embeddingService: IEmbeddingService;
+  private vectorStore: IVectorStore;
+  private documentProcessor: IDocumentProcessor;
+  private vectorSearchService: IVectorSearchService;
+
   constructor(
-    private embeddingService = embeddingService,
-    private vectorStore = vectorStore,
-    private documentProcessor = documentProcessor,
-    private searchService = vectorSearchService
-  ) {}
+    embeddingServiceParam?: IEmbeddingService,
+    vectorStoreParam?: IVectorStore,
+    documentProcessorParam?: IDocumentProcessor,
+    vectorSearchServiceParam?: IVectorSearchService
+  ) {
+    this.embeddingService = embeddingServiceParam || embeddingService;
+    this.vectorStore = vectorStoreParam || vectorStore;
+    this.documentProcessor = documentProcessorParam || documentProcessor;
+    this.vectorSearchService = vectorSearchServiceParam || vectorSearchService;
+  }
 
   // Initialize all services
   async initialize(): Promise<void> {
@@ -42,14 +54,19 @@ export class KnowledgeService {
       // Connect to vector store
       await this.vectorStore.connect();
       
-      // Test embedding service
-      const isEmbeddingReady = await this.embeddingService.testConnection();
-      if (!isEmbeddingReady) {
-        throw new Error('Embedding service not ready');
+      // Test embedding service (using concrete implementation)
+      const concreteEmbeddingService = this.embeddingService as any;
+      if (concreteEmbeddingService.testConnection) {
+        const isEmbeddingReady = await concreteEmbeddingService.testConnection();
+        if (!isEmbeddingReady) {
+          throw new Error('Embedding service not ready');
+        }
       }
 
-      // Warm up services
-      await this.embeddingService.warmup();
+      // Warm up services (using concrete implementation)
+      if (concreteEmbeddingService.warmup) {
+        await concreteEmbeddingService.warmup();
+      }
 
       console.log('Knowledge service initialized successfully');
     } catch (error) {
@@ -76,7 +93,9 @@ export class KnowledgeService {
     overall: boolean;
   }> {
     try {
-      const embeddingHealth = await this.embeddingService.testConnection();
+      const concreteEmbeddingService = this.embeddingService as any;
+      const embeddingHealth = concreteEmbeddingService.testConnection ? 
+        await concreteEmbeddingService.testConnection() : true;
       const vectorStoreHealth = await this.vectorStore.testConnection();
 
       return {
@@ -107,7 +126,7 @@ export class KnowledgeService {
   }
 
   getSearchService() {
-    return this.searchService;
+    return this.vectorSearchService;
   }
 }
 
@@ -115,5 +134,5 @@ export class KnowledgeService {
 export const knowledgeService = new KnowledgeService();
 
 // Export all types
-export * from '@/core/types/embeddings.js';
+export * from '@/core/types/embeddings';
 

@@ -343,26 +343,3 @@ export interface IConnectorRegistry {
   removeConnector(id: string): Promise<void>;
 }
 
-// Export all types
-export type {
-  ConnectorConfig,
-  GitConnectorConfig,
-  GitHubConnectorConfig,
-  JiraConnectorConfig,
-  ExtractedDocument,
-  DocumentMetadata,
-  DocumentRelationship,
-  SyncResult,
-  SyncError,
-  ConnectorHealth,
-  ConnectorMetrics,
-  SyncProgress,
-  ConnectorCapabilities,
-  ConnectorEventData,
-  IConnector,
-  GetDocumentsOptions,
-  SearchOptions,
-  IConnectorFactory,
-  IConnectorRegistry,
-};
-

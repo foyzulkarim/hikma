@@ -280,6 +280,17 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+// Processing errors
+export class ProcessingError extends AppError {
+  constructor(
+    message = 'Processing failed',
+    details?: any,
+    correlationId?: string
+  ) {
+    super(message, 500, 'PROCESSING_FAILED', true, details, correlationId);
+  }
+}
+
 // Error factory for creating errors with correlation ID
 export class ErrorFactory {
   static createError(

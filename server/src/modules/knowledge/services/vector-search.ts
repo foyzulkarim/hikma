@@ -7,11 +7,11 @@ import {
   HybridSearchQuery,
   VectorFilter,
   EmbeddingModel,
-} from '@/core/types/embeddings.js';
-import { embeddingService } from './embedding-service.js';
-import { vectorDbManager } from '@/config/vector-db.js'; // Import vectorDbManager
-import { logger } from '@/core/utils/logger.js';
-import { ValidationError } from '@/core/errors/app-error.js';
+} from '@/core/types/embeddings';
+import { embeddingService } from './embedding-service';
+import { vectorDbManager } from '@/config/vector-db'; // Import vectorDbManager
+import { logger } from '@/core/utils/logger';
+import { ValidationError } from '@/core/errors/app-error';
 
 // Search result ranking and scoring
 class SearchResultRanker {
@@ -212,22 +212,18 @@ export class VectorSearchService implements IVectorSearchService {
         EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL
       );
 
-      // Perform vector search
-      const vectorQuery: VectorSearchQuery = {
-        vector: embedding,
-        topK: searchOptions.topK || 10,
+      const vectorResponse = await (vectorDbManager as any).query(embedding, {
+        limit: searchOptions.topK || 10,
         filter: searchOptions.filter,
-        includeMetadata: searchOptions.includeMetadata,
-        includeValues: searchOptions.includeValues,
+        includeMetadata: searchOptions.includeMetadata ?? true,
+        includeValues: searchOptions.includeValues ?? false,
         namespace: searchOptions.namespace,
-      };
-
-      const vectorResponse = await vectorDbManager.vectorService.query(vectorQuery);
+      });
 
       // Apply threshold filtering
       let results = vectorResponse.results;
       if (searchOptions.threshold && searchOptions.threshold > 0) {
-        results = results.filter(result => result.score >= searchOptions.threshold!); // Use ! for non-null assertion
+        results = results.filter((result: any) => result.score >= searchOptions.threshold!); // Use ! for non-null assertion
       }
 
       // Apply reranking if enabled
@@ -249,7 +245,14 @@ export class VectorSearchService implements IVectorSearchService {
       return {
         results,
         totalCount: results.length,
-        query: vectorQuery,
+        query: {
+          text,
+          topK: searchOptions.topK || 10,
+          filter: searchOptions.filter,
+          includeMetadata: searchOptions.includeMetadata,
+          includeValues: searchOptions.includeValues,
+          namespace: searchOptions.namespace,
+        },
         executionTime,
       };
 
@@ -281,22 +284,18 @@ export class VectorSearchService implements IVectorSearchService {
         throw new ValidationError('Search vector cannot be empty');
       }
 
-      // Perform vector search
-      const vectorQuery: VectorSearchQuery = {
-        vector,
-        topK: searchOptions.topK || 10,
+      const vectorResponse = await (vectorDbManager as any).query(vector, {
+        limit: searchOptions.topK || 10,
         filter: searchOptions.filter,
-        includeMetadata: searchOptions.includeMetadata,
-        includeValues: searchOptions.includeValues,
+        includeMetadata: searchOptions.includeMetadata ?? true,
+        includeValues: searchOptions.includeValues ?? false,
         namespace: searchOptions.namespace,
-      };
-
-      const vectorResponse = await vectorDbManager.vectorService.query(vectorQuery);
+      });
 
       // Apply threshold filtering
       let results = vectorResponse.results;
       if (searchOptions.threshold && searchOptions.threshold > 0) {
-        results = results.filter(result => result.score >= searchOptions.threshold!); // Use ! for non-null assertion
+        results = results.filter((result: any) => result.score >= searchOptions.threshold!); // Use ! for non-null assertion
       }
 
       // Diversify results
@@ -313,7 +312,14 @@ export class VectorSearchService implements IVectorSearchService {
       return {
         results,
         totalCount: results.length,
-        query: vectorQuery,
+        query: {
+          vector,
+          topK: searchOptions.topK || 10,
+          filter: searchOptions.filter,
+          includeMetadata: searchOptions.includeMetadata,
+          includeValues: searchOptions.includeValues,
+          namespace: searchOptions.namespace,
+        },
         executionTime,
       };
 
@@ -423,18 +429,17 @@ export class VectorSearchService implements IVectorSearchService {
       }, 'Starting similarity search');
 
       // First, fetch the document's vector
-      const vectors = await vectorDbManager.vectorService.fetch([documentId], searchOptions.namespace);
+      const fetchResult = await (vectorDbManager as any).fetch([documentId]);
+      const vectors = Object.values(fetchResult.vectors || {});
       
       if (vectors.length === 0) {
         throw new ValidationError(`Document not found: ${documentId}`);
       }
 
-      const sourceVector = vectors[0];
+      const sourceVector = (vectors[0] as any).values as number[];
 
-      // Perform similarity search, excluding the source document
-      const vectorQuery: VectorSearchQuery = {
-        vector: sourceVector.values,
-        topK: (searchOptions.topK || 10) + 1, // +1 to account for excluding source
+      const vectorResponse = await (vectorDbManager as any).query(sourceVector, {
+        limit: (searchOptions.topK || 10) + 1, // +1 to account for excluding source
         filter: {
           ...searchOptions.filter,
           // Exclude the source document
@@ -443,16 +448,14 @@ export class VectorSearchService implements IVectorSearchService {
         includeMetadata: searchOptions.includeMetadata,
         includeValues: searchOptions.includeValues,
         namespace: searchOptions.namespace,
-      };
-
-      const vectorResponse = await vectorDbManager.vectorService.query(vectorQuery);
+      });
 
       // Filter out the source document (just in case)
-      let results = vectorResponse.results.filter(result => result.id !== documentId);
+      let results = vectorResponse.results.filter((result: any) => result.id !== documentId);
 
       // Apply threshold filtering
       if (searchOptions.threshold && searchOptions.threshold > 0) {
-        results = results.filter(result => result.score >= searchOptions.threshold!); // Use ! for non-null assertion
+        results = results.filter((result: any) => result.score >= searchOptions.threshold!); // Use ! for non-null assertion
       }
 
       // Limit to requested count
@@ -469,7 +472,14 @@ export class VectorSearchService implements IVectorSearchService {
       return {
         results,
         totalCount: results.length,
-        query: vectorQuery,
+        query: {
+          text: `Document similarity for: ${documentId}`,
+          topK: searchOptions.topK || 10,
+          filter: searchOptions.filter,
+          includeMetadata: searchOptions.includeMetadata,
+          includeValues: searchOptions.includeValues,
+          namespace: searchOptions.namespace,
+        },
         executionTime,
       };
 
@@ -538,7 +548,7 @@ export class VectorSearchService implements IVectorSearchService {
 
       logger.debug({
         queryCount: queries.length,
-        totalResults: results.reduce((acc, curr) => acc + curr.totalCount, 0),
+        totalResults: results.reduce((acc, curr) => acc + (curr.totalCount || 0), 0),
         executionTime,
       }, 'Multi-search completed');
 
@@ -591,7 +601,7 @@ export class VectorSearchService implements IVectorSearchService {
       for (const key in filters) {
         if (Object.prototype.hasOwnProperty.call(filters, key)) {
           const filterValue = (filters as any)[key];
-          const resultValue = result.metadata[key];
+          const resultValue = (result.metadata as any)[key];
 
           // Handle array filters (e.g., documentType: ['code', 'doc'])
           if (Array.isArray(filterValue)) {

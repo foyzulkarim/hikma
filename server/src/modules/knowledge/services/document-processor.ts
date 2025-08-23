@@ -8,12 +8,12 @@ import {
   VectorRecord,
   VectorMetadata,
   EmbeddingModel,
-} from '@/core/types/embeddings.js';
-import { embeddingService } from './embedding-service.js';
-import { logger } from '@/core/utils/logger.js';
-import { HashUtils, SecureRandomUtils } from '@/core/utils/crypto.js';
-import { ValidationError } from '@/core/errors/app-error.js';
-import { vectorDbManager } from '@/config/vector-db.js'; // Import vectorDbManager
+} from '@/core/types/embeddings';
+import { embeddingService } from './embedding-service';
+import { logger } from '@/core/utils/logger';
+import { HashUtils, SecureRandomUtils } from '@/core/utils/crypto';
+import { ValidationError } from '@/core/errors/app-error';
+import { vectorService } from '@/config/vector-db'; // Import vectorService
 
 // Text chunking utilities
 class TextChunker {
@@ -535,14 +535,15 @@ export class DocumentProcessor implements IDocumentProcessor {
       const vectors = await this.embedChunks(chunks);
 
       // Upsert vectors to the vector store
-      const upsertResult = await vectorDbManager.vectorService.batchUpsert(vectors);
-
-      if (!upsertResult.success) {
+      try {
+        await vectorService.upsert(vectors);
+      } catch (error) {
         logger.error({
           documentId,
-          errors: upsertResult.errors,
+          error,
         }, 'Failed to upsert vectors during document processing');
         // Depending on desired error handling, you might throw here or return partial success
+        throw error;
       }
 
       const processingTime = Date.now() - startTime;
@@ -575,6 +576,31 @@ export class DocumentProcessor implements IDocumentProcessor {
 
       throw error;
     }
+  }
+
+  // Batch processing method required by interface
+  async processDocuments(documents: Array<{
+    id: string;
+    content: string;
+    metadata: ChunkMetadata;
+  }>): Promise<Map<string, VectorRecord[]>> {
+    const results = new Map<string, VectorRecord[]>();
+    
+    for (const doc of documents) {
+      try {
+        const result = await this.processDocument(doc.id, doc.content, doc.metadata);
+        results.set(doc.id, result.vectors);
+      } catch (error) {
+        logger.error({
+          documentId: doc.id,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }, 'Failed to process document in batch');
+        // Continue processing other documents
+        results.set(doc.id, []);
+      }
+    }
+    
+    return results;
   }
 }
 

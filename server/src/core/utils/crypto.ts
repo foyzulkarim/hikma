@@ -1,12 +1,11 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
-import { config } from '@/config/app.js';
-import { logger } from './logger.js';
+import { logger } from './logger';
 
 // Password hashing utilities
 export class PasswordUtils {
-  private static readonly saltRounds = config.security.bcryptRounds;
+  private static readonly saltRounds = parseInt(process.env.BCRYPT_ROUNDS || '12', 10);
 
   static async hash(password: string): Promise<string> {
     try {
@@ -120,8 +119,8 @@ export interface JWTPayload {
 }
 
 export class JWTUtils {
-  private static readonly secret = config.security.jwtSecret;
-  private static readonly expiresIn = config.security.jwtExpiresIn;
+  private static readonly secret = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
+  private static readonly expiresIn = process.env.JWT_EXPIRES_IN || '24h';
 
   static generateToken(payload: Omit<JWTPayload, 'iat' | 'exp' | 'jti'>): string {
     try {
@@ -135,7 +134,7 @@ export class JWTUtils {
         expiresIn: this.expiresIn,
         issuer: 'hikma',
         audience: 'hikma-users',
-      });
+      } as SignOptions);
     } catch (error) {
       logger.error({ error, userId: payload.userId }, 'Failed to generate JWT token');
       throw new Error('Token generation failed');
@@ -250,12 +249,12 @@ export class EncryptionUtils {
   private static readonly keyLength = 32;
   private static readonly ivLength = 16;
   private static readonly tagLength = 16;
-  private static readonly key = Buffer.from(config.security.encryptionKey, 'utf8');
+  private static readonly key = Buffer.from(process.env.ENCRYPTION_KEY || 'your-32-character-encryption-key', 'utf8');
 
   static encrypt(text: string): string {
     try {
       const iv = crypto.randomBytes(this.ivLength);
-      const cipher = crypto.createCipher(this.algorithm, this.key);
+      const cipher = crypto.createCipheriv(this.algorithm, this.key, iv);
       cipher.setAAD(Buffer.from('hikma', 'utf8'));
 
       let encrypted = cipher.update(text, 'utf8', 'hex');
@@ -280,7 +279,7 @@ export class EncryptionUtils {
       const tag = Buffer.from(combined.slice(this.ivLength * 2, (this.ivLength + this.tagLength) * 2), 'hex');
       const encrypted = combined.slice((this.ivLength + this.tagLength) * 2);
 
-      const decipher = crypto.createDecipher(this.algorithm, this.key);
+      const decipher = crypto.createDecipheriv(this.algorithm, this.key, iv);
       decipher.setAAD(Buffer.from('hikma', 'utf8'));
       decipher.setAuthTag(tag);
 
@@ -350,14 +349,4 @@ export class HashUtils {
     );
   }
 }
-
-// Export all utilities
-export {
-  PasswordUtils,
-  JWTUtils,
-  ApiKeyUtils,
-  EncryptionUtils,
-  SecureRandomUtils,
-  HashUtils,
-};
 

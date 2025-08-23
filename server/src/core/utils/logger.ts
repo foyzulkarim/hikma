@@ -1,9 +1,8 @@
 import pino from 'pino';
-import { config } from '@/config/app.js';
 
 // Logger configuration
 const loggerConfig = {
-  level: config.server.logLevel,
+  level: process.env.LOG_LEVEL || 'info',
   formatters: {
     level: (label: string) => {
       return { level: label.toUpperCase() };
@@ -29,7 +28,7 @@ const loggerConfig = {
 // Create logger instance
 export const logger = pino(
   loggerConfig,
-  config.server.environment === 'development'
+  process.env.NODE_ENV === 'development'
     ? pino.destination({ sync: false })
     : undefined
 );
@@ -321,13 +320,4 @@ export class AgentLogger {
 
 // Export enhanced logger instance
 export const enhancedLogger = new EnhancedLogger(logger);
-
-// Export logger utilities
-export {
-  RequestLogger,
-  DatabaseLogger,
-  ExternalApiLogger,
-  AgentLogger,
-  CorrelationIdManager,
-};
 

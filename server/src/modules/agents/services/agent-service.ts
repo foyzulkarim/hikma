@@ -13,12 +13,12 @@ import {
   AgentMetrics,
   AgentConfig,
   AgentIntent,
-} from '@/core/types/agents.js';
-import { intentClassifier } from './intent-classifier.js';
-import { pipelineManager } from './pipeline-manager.js';
-import { llmService } from './llm-service.js';
-import { logger } from '@/core/utils/logger.js';
-import { ValidationError, ProcessingError } from '@/core/errors/app-error.js';
+} from '@/core/types/agents';
+import { intentClassifier } from './intent-classifier';
+import { pipelineManager } from './pipeline-manager';
+import { llmService } from './llm-service';
+import { logger } from '@/core/utils/logger';
+import { ValidationError, ProcessingError } from '@/core/errors/app-error';
 import { EventEmitter } from 'events';
 
 // Agent service implementation
@@ -537,6 +537,4 @@ export class AgentService extends EventEmitter implements IAgentService {
 
 // Export singleton instance
 export const agentService = new AgentService();
-
-export { AgentService };
 

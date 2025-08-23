@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import simpleGit, { SimpleGit, LogResult, DiffResult } from 'simple-git';
-import { BaseConnector } from './base-connector.js';
+import { BaseConnector } from './base-connector';
 import {
   GitConnectorConfig,
   DataSourceType,
@@ -15,9 +15,9 @@ import {
   SyncType,
   SyncProgress,
   SyncError,
-} from '@/core/types/connectors.js';
-import { logger } from '@/core/utils/logger.js';
-import { HashUtils } from '@/core/utils/crypto.js';
+} from '@/core/types/connectors';
+import { logger } from '@/core/utils/logger';
+import { HashUtils } from '@/core/utils/crypto';
 
 // Git connector implementation
 export class GitConnector extends BaseConnector {
@@ -455,8 +455,8 @@ export class GitConnector extends BaseConnector {
       // Get commit diff
       let diffContent = '';
       try {
-        const diff: DiffResult = await this.git.diff([`${commit.hash}^`, commit.hash]);
-        diffContent = diff;
+        const diff = await this.git.diff([`${commit.hash}^`, commit.hash]);
+        diffContent = String(diff);
       } catch (error) {
         // Ignore diff errors for initial commit
       }
@@ -631,6 +631,4 @@ export class GitConnector extends BaseConnector {
     return filtered;
   }
 }
-
-export { GitConnector };
 

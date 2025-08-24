@@ -49,68 +49,29 @@ Hikma follows a modular monolithic architecture with clear separation of concern
 
 ## 🚦 Getting Started
 
-### Prerequisites
+### Quick Start
 
-- Node.js 18+ and npm 8+
-- Docker and Docker Compose
-- Git
-- GitHub CLI (`gh`)
-- Jira CLI (`acli`) - optional
-- OpenAI API key
+```bash
+git clone <repository-url>
+cd hikma/server
+cp .env.example .env
+# Edit .env with your OpenAI API key
+npm install
+docker-compose up -d postgres redis neo4j qdrant
+npm run db:generate && npm run db:push
+npm run dev
+```
 
-### Installation
+The API will be available at `http://localhost:3000`.
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd hikma
-   ```
+### 📚 Detailed Setup
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
+For complete installation instructions, configuration details, and troubleshooting, see:
 
-3. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+**👉 [Setup Guide](docs/SETUP_GUIDE.md)** - Complete installation and configuration guide
 
-4. **Start the infrastructure**
-   ```bash
-   docker-compose up -d postgres redis neo4j
-   ```
-
-5. **Run database migrations**
-   ```bash
-   npm run migrate
-   ```
-
-6. **Seed initial data** (optional)
-   ```bash
-   npm run seed
-   ```
-
-7. **Start the development server**
-   ```bash
-   npm run dev
-   ```
-
-The API will be available at `http://localhost:3000`
-
-### Production Deployment
-
-1. **Build and deploy with Docker**
-   ```bash
-   npm run docker:build
-   npm run docker:up
-   ```
-
-2. **Or use the deployment script**
-   ```bash
-   npm run deploy
-   ```
+**Prerequisites:** Node.js 18+, Docker, OpenAI API key  
+**Time to setup:** ~10 minutes
 
 ## 📖 API Documentation
 
@@ -128,126 +89,65 @@ Once the server is running, visit:
 
 ## 🔧 Configuration
 
-### Environment Variables
-
-Key configuration options in `.env`:
-
-```bash
-# Core Application
-NODE_ENV=development
-PORT=3000
-LOG_LEVEL=info
-
-# Databases
-DATABASE_URL="postgresql://user:pass@localhost:5432/hikma"
-REDIS_URL="redis://localhost:6379"
-NEO4J_URL="bolt://localhost:7687"
-PINECONE_API_KEY="your-key"
-
-# AI/ML
-OPENAI_API_KEY="your-key"
-OPENAI_MODEL="gpt-4-turbo-preview"
-
-# External Services
-GITHUB_TOKEN="your-token"
-JIRA_URL="https://your-org.atlassian.net"
-JIRA_API_TOKEN="your-token"
-
-# Security
-JWT_SECRET="your-secret"
-```
-
-### Database Configuration
-
 The system uses multiple databases for different purposes:
-
 - **PostgreSQL**: User data, query logs, feedback, structured metadata
 - **Redis**: Caching, session storage, queue management
 - **Neo4j**: Relationship graphs between code, PRs, tickets, developers
-- **Pinecone**: Vector embeddings for semantic search
+- **Qdrant**: Vector embeddings for semantic search
+
+For detailed configuration options, environment variables, and database setup instructions, see the **[Setup Guide](docs/SETUP_GUIDE.md)**.
 
 ## 🧪 Testing
 
 ```bash
-# Run all tests
-npm test
-
-# Run specific test suites
-npm run test:unit
-npm run test:integration
-npm run test:e2e
-npm run test:performance
-
-# Run with coverage
-npm run test -- --coverage
+npm test                    # Run all tests
+npm run test:unit          # Unit tests only
+npm run test:integration   # Integration tests
+npm run test:e2e          # End-to-end tests
 ```
+
+For detailed testing instructions and examples, see the **[Setup Guide](docs/SETUP_GUIDE.md#-testing-the-system)**.
 
 ## 📊 Monitoring
 
 Hikma includes comprehensive monitoring capabilities:
-
-- **Health Checks**: `/health` endpoint with dependency status
+- **Health Checks**: `/health` endpoint with dependency status  
 - **Metrics**: Prometheus-compatible metrics at `/metrics`
 - **Logging**: Structured JSON logs with correlation IDs
 - **Tracing**: OpenTelemetry-compatible distributed tracing
 
-### Monitoring Stack (Optional)
-
-Enable the monitoring stack with:
-
-```bash
-docker-compose --profile monitoring up -d
-```
-
-This includes:
-- Prometheus (metrics collection): `http://localhost:9090`
-- Grafana (dashboards): `http://localhost:3001`
+Optional Prometheus + Grafana stack available. See **[Setup Guide](docs/SETUP_GUIDE.md#optional-monitoring-stack)** for details.
 
 ## 🛠️ Development
 
 ### Project Structure
 
+The codebase follows a modular architecture with clear separation of concerns:
+
 ```
-hikma/
-├── src/
-│   ├── core/           # Shared types, errors, utilities
-│   ├── infrastructure/ # Database clients, external APIs
-│   ├── modules/        # Business logic modules
-│   ├── monitoring/     # Health checks, metrics
-│   └── app.ts         # Application entry point
-├── config/            # Configuration files
-├── prisma/           # Database schema and migrations
-├── tests/            # Test suites
-├── deployments/      # Docker and deployment configs
-└── tools/            # CLI tools and utilities
+src/
+├── app/            # Fastify server, routes, middleware
+├── domains/        # Domain-specific logic (users, projects)
+├── knowledge/      # Knowledge base and ingestion
+├── agents/         # AI agents and orchestration
+├── workflow/       # Workflow automation
+├── analytics/      # Analytics and evaluation
+├── infrastructure/ # Databases, external APIs, monitoring
+└── shared/         # Shared utilities and decorators
 ```
 
-### Development Workflow
+### Development Commands
 
-1. **Create a feature branch**
-   ```bash
-   git checkout -b feature/your-feature
-   ```
+```bash
+npm run dev         # Start development server
+npm run build       # Build for production  
+npm run lint        # Check code style
+npm run typecheck   # TypeScript validation
+```
 
-2. **Make changes and test**
-   ```bash
-   npm run dev      # Start development server
-   npm run lint     # Check code style
-   npm run test     # Run tests
-   ```
+For detailed development workflow, database management, and troubleshooting, see the **[Setup Guide](docs/SETUP_GUIDE.md#-development-workflow)**.
 
-3. **Build and verify**
-   ```bash
-   npm run build    # Compile TypeScript
-   npm start        # Test production build
-   ```
 
-### Adding New Features
-
-1. **Data Connectors**: Add to `src/modules/ingestion/connectors/`
-2. **Agent Tools**: Add to `src/modules/knowledge/tools/`
-3. **API Endpoints**: Add to `src/modules/interfaces/api/routes/`
-4. **Database Models**: Update `prisma/schema.prisma`
 
 ## 🤝 Contributing
 
@@ -258,15 +158,22 @@ hikma/
 5. Ensure all tests pass
 6. Submit a pull request
 
+## 📚 Documentation
+
+- **[Setup Guide](docs/SETUP_GUIDE.md)** - Complete installation and configuration guide
+- **[Architecture Overview](docs/ARCHITECTURE_CURRENT_STATE.md)** - System design and components
+- **[API Documentation](docs/api/README.md)** - REST API reference and examples
+- **[Data Architecture](docs/data/README.md)** - Database schemas and data flow
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🆘 Support
 
-- **Documentation**: See the `docs/` directory
-- **Issues**: GitHub Issues
-- **Discussions**: GitHub Discussions
+- **Documentation**: See the `docs/` directory for comprehensive guides
+- **Issues**: GitHub Issues for bug reports and feature requests
+- **Health Check**: `http://localhost:3000/api/v1/health` for system diagnostics
 
 ## 🗺️ Roadmap
 

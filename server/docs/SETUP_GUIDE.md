@@ -10,13 +10,15 @@ For the impatient developer:
 git clone <repository-url>
 cd hikma/server
 cp .env.example .env
-# Edit .env with your API keys
-npm run setup
-docker-compose up -d
+# Edit .env with your OpenAI API key
+npm install
+docker-compose up -d postgres redis neo4j qdrant
+npm run db:generate
+npm run db:push
 npm run dev
 ```
 
-Then visit `http://localhost:3000/health` to verify everything is working.
+Then visit `http://localhost:3000/api/v1/health` to verify everything is working.
 
 ---
 
@@ -65,19 +67,21 @@ npm install
 cp .env.example .env
 ```
 
+> **Note**: The package.json includes Fastify 5.x and compatible plugin versions. If you encounter version conflicts, ensure you're using the latest version of the repository.
+
 ### Step 2: Configure Environment
 
-Edit the `.env` file with your configuration:
+The `.env` file is pre-configured with correct database passwords that match the Docker setup. You only need to add your API keys:
 
 ```bash
-# Core Application
+# Core Application (pre-configured)
 NODE_ENV=development
 PORT=3000
 LOG_LEVEL=info
 
-# Database URLs
+# Database URLs (pre-configured - no changes needed)
 DATABASE_URL="postgresql://hikma:hikma123@localhost:5432/hikma"
-REDIS_URL="redis://localhost:6379"
+REDIS_URL="redis://:redis123@localhost:6379"
 NEO4J_URL="bolt://localhost:7687"
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=neo4j123
@@ -107,8 +111,8 @@ SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
 ### Step 3: Start Infrastructure
 
 ```bash
-# Start all required services
-docker-compose up -d
+# Start only the infrastructure services (not the app)
+docker-compose up -d postgres redis neo4j qdrant
 
 # Verify services are running
 docker-compose ps
@@ -156,7 +160,7 @@ The server will start at `http://localhost:3000`
 ### Health Check
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:3000/api/v1/health
 ```
 
 Expected response:
@@ -318,13 +322,29 @@ docker info
 # Clean up and restart
 docker-compose down -v
 docker system prune -f
-docker-compose up -d
+docker-compose up -d postgres redis neo4j qdrant
 
 # Check individual service logs
 docker-compose logs postgres
 docker-compose logs redis
 docker-compose logs neo4j
 docker-compose logs qdrant
+```
+
+#### ❌ \"Docker build fails with missing directories\"
+
+**Symptoms**: `COPY config/ ./config/: not found` or similar errors
+
+**Solutions**:
+```bash
+# Create missing directories (if they don't exist)
+mkdir -p config scripts deployments
+
+# Add placeholder files to keep directories in git
+touch config/.gitkeep scripts/.gitkeep deployments/.gitkeep
+
+# Try building again
+docker-compose up -d
 ```
 
 #### ❌ \"TypeScript compilation errors\"
@@ -451,9 +471,10 @@ Before deploying to production:
 
 Once you have Hikma running:
 
-1. **📖 Read the Documentation**
-   - [Data Architecture](./data/README.md)
-   - [API Documentation](http://localhost:3000/docs)
+1. **📖 Explore the Documentation**
+   - [Project Overview & Features](../README.md) - Learn about Hikma's capabilities
+   - [Data Architecture](./data/README.md) - Understanding the data model
+   - [API Documentation](http://localhost:3000/docs) - Interactive API reference
 
 2. **🔌 Add Data Sources**
    - Connect your Git repositories
@@ -479,9 +500,10 @@ Once you have Hikma running:
 
 ## 🆘 Getting Help
 
-- **Documentation**: Check the `docs/` directory
+- **Setup Issues**: Check troubleshooting steps above
+- **Documentation**: Browse the complete `docs/` directory  
 - **Health Checks**: Use `/health` endpoints for diagnostics
-- **Logs**: Review application and Docker logs
-- **Issues**: Check common troubleshooting steps above
+- **Application Logs**: Review application and Docker logs
+- **Project Support**: See [README.md](../README.md#-support) for issue reporting and discussions
 
 The system is now ready for development and testing! 🎉

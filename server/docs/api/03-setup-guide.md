@@ -1,6 +1,11 @@
-# Hikma API Setup & Usage Guide
+# API Setup & Usage Guide
 
 This comprehensive guide will walk you through setting up accounts, obtaining authentication tokens, and using all the API endpoints in the Hikma Agentic Code Intelligence Platform.
+
+## 📚 Documentation Navigation
+
+- **[← API Reference](./02-api-reference.md)** - Complete API endpoint reference
+- **[← Back to Overview](./01-overview.md)** - API overview and getting started
 
 ## 🚀 Quick Start
 
@@ -14,22 +19,27 @@ This comprehensive guide will walk you through setting up accounts, obtaining au
 # 1. Register a new user
 curl -X POST http://localhost:3000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123","name":"Test User"}'
+  -d '{"email":"test@example.com","password":"password123","username":"testuser","firstName":"Test","lastName":"User"}'
 
-# 2. Extract token from response and use it
+# 2. Login to get token
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"emailOrUsername":"test@example.com","password":"password123"}'
+
+# 3. Extract token from response and use it
 export TOKEN="your-access-token-here"
 
-# 3. Create a project
+# 4. Create a project
 curl -X POST http://localhost:3000/api/v1/projects \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"My Repo","repositoryPath":"/path/to/repo"}'
 
-# 4. Start embedding process
+# 5. Start embedding process
 curl -X POST http://localhost:3000/api/v1/projects/{project-id}/sync \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"force":false}'
 ```
 
 ---
@@ -44,9 +54,10 @@ curl -X POST http://localhost:3000/api/v1/projects/{project-id}/sync \
 ```json
 {
   "email": "your-email@example.com",
+  "username": "your-username",
   "password": "your-secure-password",
-  "name": "Your Full Name",
-  "organization": "Your Organization (optional)"
+  "firstName": "Your First Name",
+  "lastName": "Your Last Name"
 }
 ```
 
@@ -56,33 +67,26 @@ curl -X POST http://localhost:3000/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "email": "john.doe@example.com",
+    "username": "johndoe",
     "password": "SecurePass123!",
-    "name": "John Doe",
-    "organization": "Acme Corp"
+    "firstName": "John",
+    "lastName": "Doe"
   }'
 ```
 
 **Response**:
 ```json
 {
-  "success": true,
-  "data": {
-    "user": {
-      "id": "cm123abc456",
-      "email": "john.doe@example.com",
-      "username": "john.doe",
-      "firstName": "John",
-      "lastName": "Doe",
-      "role": "USER",
-      "isActive": true
-    },
-    "tokens": {
-      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-      "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-      "expiresIn": 3600
-    }
+  "user": {
+    "id": "cm123abc456",
+    "email": "john.doe@example.com",
+    "username": "johndoe",
+    "fullName": "John Doe",
+    "role": "USER",
+    "isActive": true,
+    "createdAt": "2024-01-15T10:30:00Z"
   },
-  "correlationId": "req_123456"
+  "message": "User created successfully"
 }
 ```
 
@@ -93,7 +97,7 @@ curl -X POST http://localhost:3000/api/v1/auth/register \
 **Request Body**:
 ```json
 {
-  "email": "your-email@example.com",
+  "emailOrUsername": "your-email@example.com",
   "password": "your-password"
 }
 ```
@@ -103,34 +107,73 @@ curl -X POST http://localhost:3000/api/v1/auth/register \
 curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "john.doe@example.com",
+    "emailOrUsername": "john.doe@example.com",
     "password": "SecurePass123!"
   }'
 ```
 
-**Response**: Same format as registration.
+**Response**:
+```json
+{
+  "user": {
+    "id": "cm123abc456",
+    "email": "john.doe@example.com",
+    "username": "johndoe",
+    "fullName": "John Doe",
+    "role": "USER",
+    "isActive": true
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
 
-### 3. Token Refresh
+### 3. Get User Profile
 
-**Endpoint**: `POST /api/v1/auth/refresh`
+**Endpoint**: `GET /api/v1/auth/profile`
+
+**Headers**: `Authorization: Bearer {token}`
+
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/auth/profile \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Response**:
+```json
+{
+  "user": {
+    "id": "cm123abc456",
+    "email": "john.doe@example.com",
+    "username": "johndoe",
+    "firstName": "John",
+    "lastName": "Doe",
+    "fullName": "John Doe",
+    "displayName": "John Doe",
+    "role": "USER",
+    "isActive": true,
+    "createdAt": "2024-01-15T10:30:00Z",
+    "updatedAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### 4. Update User Profile
+
+**Endpoint**: `PUT /api/v1/auth/profile`
+
+**Headers**: `Authorization: Bearer {token}`
 
 **Request Body**:
 ```json
 {
-  "refreshToken": "your-refresh-token"
+  "firstName": "John",
+  "lastName": "Smith",
+  "email": "john.smith@example.com"
 }
 ```
 
-**Example**:
-```bash
-curl -X POST http://localhost:3000/api/v1/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d '{
-    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-  }'
-```
-
-### 4. Using Access Tokens
+### 5. Using Access Tokens
 
 Include the access token in the `Authorization` header for all protected endpoints:
 
@@ -156,11 +199,14 @@ curl -X GET http://localhost:3000/api/v1/projects \
   "description": "AI analysis of my React application",
   "repositoryPath": "/Users/john/projects/my-app",
   "repositoryUrl": "https://github.com/john/my-app.git",
+  "branch": "main",
   "settings": {
-    "branch": "main",
     "includePatterns": ["**/*.{js,ts,jsx,tsx,py}"],
     "excludePatterns": ["**/node_modules/**", "**/dist/**"],
-    "maxFileSize": 1048576
+    "maxFileSize": 1048576,
+    "enableAutoSync": true,
+    "syncInterval": 3600,
+    "followSymlinks": false
   }
 }
 ```
@@ -180,17 +226,24 @@ curl -X POST http://localhost:3000/api/v1/projects \
 **Response**:
 ```json
 {
-  "success": true,
-  "data": {
-    "project": {
-      "id": "proj_123abc456",
-      "name": "My React App",
-      "description": "Personal project for AI analysis",
-      "slug": "my-react-app",
-      "status": "ACTIVE",
-      "createdAt": "2024-01-15T10:30:00Z",
-      "updatedAt": "2024-01-15T10:30:00Z"
-    }
+  "project": {
+    "id": "proj_123abc456",
+    "name": "My React App",
+    "slug": "my-react-app",
+    "description": "Personal project for AI analysis",
+    "repositoryPath": "/Users/john/projects/react-app",
+    "settings": {
+      "branch": "main",
+      "includePatterns": ["**/*"],
+      "excludePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.git/**", "**/coverage/**"],
+      "maxFileSize": 1048576,
+      "enableAutoSync": true,
+      "syncInterval": 3600,
+      "followSymlinks": false
+    },
+    "status": "ACTIVE",
+    "createdAt": "2024-01-15T10:30:00Z",
+    "updatedAt": "2024-01-15T10:30:00Z"
   }
 }
 ```
@@ -202,14 +255,47 @@ curl -X POST http://localhost:3000/api/v1/projects \
 **Headers**: `Authorization: Bearer {token}`
 
 **Query Parameters**:
-- `limit` (optional): Number of projects to return (default: 50)
+- `limit` (optional): Number of projects to return (default: 50, max: 100)
 - `offset` (optional): Number of projects to skip (default: 0)
-- `status` (optional): Filter by status (`ACTIVE`, `INACTIVE`, `ARCHIVED`)
+- `status` (optional): Filter by status (`ACTIVE`, `INACTIVE`)
 
 **Example**:
 ```bash
 curl -X GET "http://localhost:3000/api/v1/projects?limit=10&offset=0" \
   -H "Authorization: Bearer $TOKEN"
+```
+
+**Response**:
+```json
+{
+  "projects": [
+    {
+      "id": "proj_123abc456",
+      "name": "My React App",
+      "slug": "my-react-app",
+      "description": "Personal project for AI analysis",
+      "repositoryPath": "/Users/john/projects/react-app",
+      "settings": {
+        "branch": "main",
+        "includePatterns": ["**/*"],
+        "excludePatterns": ["**/node_modules/**"],
+        "maxFileSize": 1048576,
+        "enableAutoSync": true,
+        "syncInterval": 3600,
+        "followSymlinks": false
+      },
+      "status": "ACTIVE",
+      "createdAt": "2024-01-15T10:30:00Z",
+      "updatedAt": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "metadata": {
+    "total": 1,
+    "limit": 50,
+    "offset": 0,
+    "hasMore": false
+  }
+}
 ```
 
 ### 3. Get Project Details
@@ -236,9 +322,22 @@ curl -X GET http://localhost:3000/api/v1/projects/proj_123abc456 \
   "name": "Updated Project Name",
   "description": "Updated description",
   "settings": {
-    "branch": "develop"
-  }
+    "branch": "develop",
+    "enableAutoSync": false
+  },
+  "status": "INACTIVE"
 }
+```
+
+**Example**:
+```bash
+curl -X PUT http://localhost:3000/api/v1/projects/proj_123abc456 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Updated React App",
+    "description": "Updated description"
+  }'
 ```
 
 ### 5. Delete Project
@@ -251,6 +350,19 @@ curl -X GET http://localhost:3000/api/v1/projects/proj_123abc456 \
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/projects/proj_123abc456 \
   -H "Authorization: Bearer $TOKEN"
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Project deleted successfully",
+  "deletedProject": {
+    "id": "proj_123abc456",
+    "name": "My React App",
+    "slug": "my-react-app"
+  }
+}
 ```
 
 ---
@@ -266,8 +378,7 @@ curl -X DELETE http://localhost:3000/api/v1/projects/proj_123abc456 \
 **Request Body**:
 ```json
 {
-  "force": false,
-  "incremental": false
+  "force": false
 }
 ```
 
@@ -276,46 +387,19 @@ curl -X DELETE http://localhost:3000/api/v1/projects/proj_123abc456 \
 curl -X POST http://localhost:3000/api/v1/projects/proj_123abc456/sync \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"force": false, "incremental": false}'
+  -d '{"force": false}'
 ```
 
 **Response**:
 ```json
 {
-  "success": true,
-  "data": {
-    "project": {
-      "id": "proj_123abc456",
-      "status": "ACTIVE"
-    },
-    "syncStatus": "started"
-  },
-  "correlationId": "req_789xyz"
-}
-```
-
-### 2. Check Sync Status
-
-**Endpoint**: `GET /api/v1/projects/{projectId}/sync/status`
-
-**Headers**: `Authorization: Bearer {token}`
-
-**Example**:
-```bash
-curl -X GET http://localhost:3000/api/v1/projects/proj_123abc456/sync/status \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-**Response**:
-```json
-{
-  "success": true,
-  "data": {
-    "syncStatus": {
-      "projectId": "proj_123abc456",
-      "status": "ACTIVE",
-      "lastUpdated": "2024-01-15T10:35:00Z"
-    }
+  "status": "success",
+  "message": "Sync started successfully",
+  "syncId": "sync_789xyz",
+  "project": {
+    "id": "proj_123abc456",
+    "name": "My React App",
+    "lastSyncAt": "2024-01-15T10:35:00Z"
   }
 }
 ```
@@ -380,7 +464,8 @@ curl -X POST http://localhost:3000/api/v1/query/ask \
       "confidence": 0.92,
       "executionTime": 1250
     }
-  }
+  },
+  "correlationId": "req_123456"
 }
 ```
 
@@ -404,6 +489,19 @@ curl -X POST http://localhost:3000/api/v1/query/ask \
     }
   ]
 }
+```
+
+**Example**:
+```bash
+curl -X POST http://localhost:3000/api/v1/query/batch \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "queries": [
+      {"query": "What is the main entry point?", "projectId": "proj_123abc456"},
+      {"query": "How is routing handled?", "projectId": "proj_123abc456"}
+    ]
+  }'
 ```
 
 ### 3. Conversation Mode
@@ -442,8 +540,8 @@ curl -X POST http://localhost:3000/api/v1/query/ask \
 **Query Parameters**:
 - `projectId` (optional): Filter by project
 - `sessionId` (optional): Filter by session
-- `limit` (optional): Number of queries to return
-- `offset` (optional): Number of queries to skip
+- `limit` (optional): Number of queries to return (default: 50, max: 100)
+- `offset` (optional): Number of queries to skip (default: 0)
 
 **Example**:
 ```bash
@@ -464,6 +562,18 @@ curl -X GET "http://localhost:3000/api/v1/query/history?projectId=proj_123abc456
   "feedback": "Very helpful response!",
   "helpful": true
 }
+```
+
+**Example**:
+```bash
+curl -X POST http://localhost:3000/api/v1/query/query_123abc456/feedback \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rating": 5,
+    "feedback": "Very helpful response!",
+    "helpful": true
+  }'
 ```
 
 ---
@@ -503,74 +613,104 @@ curl -X GET http://localhost:3000/api/v1/health
       "redis": true,
       "neo4j": true
     }
-  }
+  },
+  "correlationId": "req_123456"
 }
 ```
 
-### 2. Service-Specific Health
+### 2. Liveness Probe
 
-**Endpoints**:
-- `GET /api/v1/health/services/knowledge`
-- `GET /api/v1/health/services/agent`
-- `GET /api/v1/health/live` (Liveness probe)
-- `GET /api/v1/health/ready` (Readiness probe)
+**Endpoint**: `GET /api/v1/health/live`
 
-### 3. System Metrics
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/health/live
+```
+
+### 3. Readiness Probe
+
+**Endpoint**: `GET /api/v1/health/ready`
+
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/health/ready
+```
+
+### 4. System Metrics
 
 **Endpoint**: `GET /api/v1/health/metrics`
 
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/health/metrics
+```
+
+### 5. Version Information
+
+**Endpoint**: `GET /api/v1/health/version`
+
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/health/version
+```
+
 ---
 
-## 👤 User Profile Management
+## 📊 Enhanced Monitoring
 
-### 1. Get Profile
+### 1. Monitoring Health
 
-**Endpoint**: `GET /api/v1/auth/profile`
+**Endpoint**: `GET /api/v1/monitoring/health`
 
-**Headers**: `Authorization: Bearer {token}`
-
-### 2. Change Password
-
-**Endpoint**: `POST /api/v1/auth/change-password`
-
-**Headers**: `Authorization: Bearer {token}`
-
-**Request Body**:
-```json
-{
-  "currentPassword": "old-password",
-  "newPassword": "new-secure-password"
-}
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/monitoring/health
 ```
 
-### 3. Forgot Password
+### 2. Quick Health Check
 
-**Endpoint**: `POST /api/v1/auth/forgot-password`
+**Endpoint**: `GET /api/v1/monitoring/health/quick`
 
-**Request Body**:
-```json
-{
-  "email": "user@example.com"
-}
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/monitoring/health/quick
 ```
 
-### 4. Reset Password
+### 3. Detailed Metrics
 
-**Endpoint**: `POST /api/v1/auth/reset-password`
+**Endpoint**: `GET /api/v1/monitoring/metrics`
 
-**Request Body**:
-```json
-{
-  "token": "reset-token-from-email",
-  "newPassword": "new-secure-password"
-}
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/monitoring/metrics
 ```
 
-### 5. Logout
+### 4. Prometheus Metrics
 
-**Endpoint**: `POST /api/v1/auth/logout`
+**Endpoint**: `GET /api/v1/monitoring/metrics/prometheus`
 
-**Headers**: `Authorization: Bearer {token}`
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/monitoring/metrics/prometheus
+```
+
+### 5. Monitoring Status
+
+**Endpoint**: `GET /api/v1/monitoring/status`
+
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/monitoring/status
+```
+
+### 6. Active Alerts
+
+**Endpoint**: `GET /api/v1/monitoring/alerts`
+
+**Example**:
+```bash
+curl -X GET http://localhost:3000/api/v1/monitoring/alerts
+```
 
 ---
 
@@ -584,6 +724,7 @@ Here's a complete example of setting up an account and analyzing a codebase:
 # Configuration
 API_BASE="http://localhost:3000/api/v1"
 EMAIL="developer@example.com"
+USERNAME="developer"
 PASSWORD="SecurePass123!"
 REPO_PATH="/Users/dev/projects/my-app"
 
@@ -595,15 +736,28 @@ REGISTER_RESPONSE=$(curl -s -X POST "$API_BASE/auth/register" \
   -H "Content-Type: application/json" \
   -d "{
     \"email\": \"$EMAIL\",
+    \"username\": \"$USERNAME\",
     \"password\": \"$PASSWORD\",
-    \"name\": \"Developer User\"
+    \"firstName\": \"Developer\",
+    \"lastName\": \"User\"
+  }")
+
+echo "Registration response: $REGISTER_RESPONSE"
+
+# Step 2: Login to get token
+echo "🔐 Logging in..."
+LOGIN_RESPONSE=$(curl -s -X POST "$API_BASE/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"emailOrUsername\": \"$EMAIL\",
+    \"password\": \"$PASSWORD\"
   }")
 
 # Extract access token
-ACCESS_TOKEN=$(echo $REGISTER_RESPONSE | jq -r '.data.tokens.accessToken')
-echo "✅ User registered. Token: ${ACCESS_TOKEN:0:20}..."
+ACCESS_TOKEN=$(echo $LOGIN_RESPONSE | jq -r '.token')
+echo "✅ User logged in. Token: ${ACCESS_TOKEN:0:20}..."
 
-# Step 2: Create project
+# Step 3: Create project
 echo "📁 Creating project..."
 PROJECT_RESPONSE=$(curl -s -X POST "$API_BASE/projects" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -614,28 +768,23 @@ PROJECT_RESPONSE=$(curl -s -X POST "$API_BASE/projects" \
     \"repositoryPath\": \"$REPO_PATH\"
   }")
 
-PROJECT_ID=$(echo $PROJECT_RESPONSE | jq -r '.data.project.id')
+PROJECT_ID=$(echo $PROJECT_RESPONSE | jq -r '.project.id')
 echo "✅ Project created. ID: $PROJECT_ID"
 
-# Step 3: Start embedding process
+# Step 4: Start embedding process
 echo "🔄 Starting embedding process..."
 SYNC_RESPONSE=$(curl -s -X POST "$API_BASE/projects/$PROJECT_ID/sync" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"force": false, "incremental": false}')
+  -d '{"force": false}')
 
 echo "✅ Embedding process started"
+echo "Sync response: $SYNC_RESPONSE"
 
-# Step 4: Wait and check status
-echo "⏳ Waiting for embedding to complete..."
-sleep 10
+# Step 5: Wait a moment then ask a question
+echo "⏳ Waiting for embedding to process..."
+sleep 5
 
-STATUS_RESPONSE=$(curl -s -X GET "$API_BASE/projects/$PROJECT_ID/sync/status" \
-  -H "Authorization: Bearer $ACCESS_TOKEN")
-
-echo "📊 Sync status: $(echo $STATUS_RESPONSE | jq -r '.data.syncStatus.status')"
-
-# Step 5: Ask a question
 echo "🤖 Asking AI about the codebase..."
 QUERY_RESPONSE=$(curl -s -X POST "$API_BASE/query/ask" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
@@ -645,8 +794,14 @@ QUERY_RESPONSE=$(curl -s -X POST "$API_BASE/query/ask" \
     \"projectId\": \"$PROJECT_ID\"
   }")
 
-ANSWER=$(echo $QUERY_RESPONSE | jq -r '.data.response.response')
-echo "💬 AI Response: $ANSWER"
+echo "💬 AI Response:"
+echo $QUERY_RESPONSE | jq -r '.data.response.response // "No response available yet"'
+
+# Step 6: Check system health
+echo "🏥 Checking system health..."
+HEALTH_RESPONSE=$(curl -s -X GET "$API_BASE/health")
+HEALTH_STATUS=$(echo $HEALTH_RESPONSE | jq -r '.status')
+echo "📊 System status: $HEALTH_STATUS"
 
 echo "🎉 Workflow completed successfully!"
 ```
@@ -689,9 +844,9 @@ echo "🎉 Workflow completed successfully!"
 1. **Store tokens securely**: Never log or expose access tokens
 2. **Use HTTPS**: Always use HTTPS in production
 3. **Token expiration**: Access tokens expire in 1 hour by default
-4. **Refresh tokens**: Use refresh tokens to get new access tokens
-5. **Rate limiting**: Respect rate limits (100 requests per 15 minutes by default)
-6. **Strong passwords**: Use strong passwords for user accounts
+4. **Rate limiting**: Respect rate limits (100 requests per 15 minutes by default)
+5. **Strong passwords**: Use strong passwords for user accounts
+6. **Environment variables**: Store sensitive configuration in environment variables
 
 ---
 
@@ -714,7 +869,7 @@ This provides:
 ### Common Issues
 
 1. **401 Unauthorized**: Check if your access token is valid and not expired
-2. **404 Not Found**: Verify the endpoint URL and project ID
+2. **404 Not Found**: Verify the endpoint URL and resource IDs
 3. **429 Rate Limited**: Wait before making more requests
 4. **500 Server Error**: Check server logs and health endpoints
 
@@ -725,7 +880,32 @@ This provides:
 - Verify your environment configuration
 - Ensure all required services (PostgreSQL, Redis, Qdrant) are running
 
+### Debug Commands
+
+```bash
+# Check API status
+curl -X GET http://localhost:3000/api/v1/docs
+
+# Check system health
+curl -X GET http://localhost:3000/api/v1/health
+
+# Check monitoring status
+curl -X GET http://localhost:3000/api/v1/monitoring/status
+
+# Get version information
+curl -X GET http://localhost:3000/api/v1/health/version
+```
+
 ---
 
-This guide covers all the essential API endpoints and workflows for the Hikma platform. For more detailed technical information, refer to the other documentation files in the `docs/` directory.
+## 📖 Additional Resources
 
+- **API Reference**: `docs/API_REFERENCE.md`
+- **Architecture Documentation**: `docs/ARCHITECTURE.md`
+- **Setup Guide**: `docs/SETUP_GUIDE.md`
+- **Swagger UI**: `http://localhost:3000/documentation`
+- **OpenAPI Spec**: `http://localhost:3000/documentation/json`
+
+---
+
+*This guide covers all the essential API endpoints and workflows for the Hikma platform. For more detailed technical information, refer to the other documentation files in the `docs/` directory.*

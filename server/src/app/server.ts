@@ -24,12 +24,8 @@ declare module 'fastify' {
   }
 }
 
-// Import route handlers
-import { queryRoutes } from './routes/query';
-import { projectRoutes } from '@/domains/projects';
-import { healthRoutes } from './routes/health';
-import { monitoringRoutes } from './routes/monitoring';
-import { userRoutes } from '@/domains/users';
+// Import new route management system
+import { routeManager } from './routes/manager';
 
 // Import services for initialization
 import { knowledgeService } from '@/knowledge/services/index';
@@ -273,57 +269,11 @@ async function registerMiddleware(server: FastifyInstance): Promise<void> {
   // Rate limiting is already registered above with @fastify/rate-limit
 }
 
-// Register routes
+// Register routes using the new route management system
 async function registerRoutes(server: FastifyInstance): Promise<void> {
-  // Health check routes (no auth required)
-  await server.register(healthRoutes, { prefix: '/api/v1/health' });
-
-  // Monitoring routes (no auth required for basic monitoring)
-  await server.register(monitoringRoutes, { prefix: '/api/v1/monitoring' });
-
-  // Authentication routes
-  await server.register(userRoutes, { prefix: '/api/v1/auth' });
-
-  // Query routes (auth required)
-  await server.register(queryRoutes, { prefix: '/api/v1/query' });
-
-  // Project routes (auth required)
-  await server.register(projectRoutes, { prefix: '/api/v1/projects' });
-
-  // API documentation route
-  server.get('/api/v1/docs', async (request, reply) => {
-    return {
-      name: 'Hikma API',
-      version: '1.0.0',
-      description: 'Agentic Code Intelligence Platform API',
-      endpoints: {
-        health: '/api/v1/health',
-        auth: '/api/v1/auth',
-        query: '/api/v1/query',
-        projects: '/api/v1/projects',
-      },
-      documentation: {
-        swagger: '/documentation',
-        openapi: '/documentation/json',
-      },
-    };
-  });
-
-  // Redirect /docs to /documentation for convenience
-  server.get('/docs', async (request, reply) => {
-    reply.redirect('/documentation');
-  });
-
-  // Root route
-  server.get('/', async (request, reply) => {
-    return {
-      name: 'Hikma API',
-      version: '1.0.0',
-      status: 'running',
-      timestamp: new Date().toISOString(),
-      environment: config.server.environment,
-    };
-  });
+  // Initialize and register routes through the route manager
+  await routeManager.initialize();
+  await routeManager.registerRoutes(server);
 }
 
 // Register error handlers
@@ -331,15 +281,7 @@ function registerErrorHandlers(server: FastifyInstance): void {
   // Global error handler
   server.setErrorHandler(globalErrorHandler);
 
-  // Not found handler
-  server.setNotFoundHandler(async (request, reply) => {
-    reply.status(404).send({
-      error: 'Not Found',
-      message: `Route ${request.method} ${request.url} not found`,
-      statusCode: 404,
-      correlationId: request.id,
-    });
-  });
+  // Note: Not found handler is now managed by the route manager
 }
 
 // Initialize services

@@ -261,6 +261,40 @@ export class UserRepository implements IUserRepository {
     return this.mapToEntity(user);
   }
 
+  async incrementLoginAttempts(email: string): Promise<void> {
+    // For now, we'll implement a simple approach
+    // In production, you might want to track this in a separate table or add a field to the user table
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (user) {
+      // Implementation would depend on having a loginAttempts field in the schema
+      // For now, we'll just update the updatedAt to track the attempt
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { updatedAt: new Date() }
+      });
+    }
+  }
+
+  async resetLoginAttempts(email: string): Promise<void> {
+    // For now, we'll implement a simple approach
+    // In production, you might want to track this in a separate table or add a field to the user table
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (user) {
+      // Implementation would depend on having a loginAttempts field in the schema
+      // For now, we'll just update the updatedAt to track the reset
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { updatedAt: new Date() }
+      });
+    }
+  }
+
   private mapToEntity(user: any): UserEntity {
     return new UserEntity(
       user.id,

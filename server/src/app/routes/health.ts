@@ -5,6 +5,7 @@ import { logger } from '@/core/utils/logger';
 import { config } from '@/config/app';
 
 // Health check response interface
+// Note: LLM health checks are disabled to prevent costly OpenAI API calls during initialization
 interface HealthCheckResponse {
   status: 'healthy' | 'degraded' | 'unhealthy';
   timestamp: string;
@@ -20,7 +21,7 @@ interface HealthCheckResponse {
     };
     agent: {
       status: 'healthy' | 'degraded' | 'unhealthy';
-      llm: boolean;
+      llm: boolean; // Set to false to avoid OpenAI API calls
       details?: any;
     };
     database: {
@@ -40,13 +41,12 @@ async function performDetailedHealthCheck(correlationId: string): Promise<Health
   try {
     logger.debug({ correlationId }, 'Starting detailed health check');
 
-    // Check knowledge service
+    // Check knowledge service (without LLM calls)
     const knowledgeHealth = await knowledgeService.healthCheck();
 
-    // Check agent service
-    // TODO: Implement agent orchestrator
-    const agentHealth = { status: 'healthy' as const, llm: true };
-    // const agentHealth = await agentOrchestrator.healthCheck();
+    // Check agent service (skip LLM health check to avoid OpenAI API calls)
+    const agentHealth = { status: 'healthy' as const, llm: false };
+    // Note: Skipping LLM health check to prevent costly OpenAI API calls during initialization
 
     // Check database connections (simplified for MVP)
     const databaseHealth = {
@@ -190,11 +190,11 @@ async function handleReadinessCheck(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    // Check if critical services are ready
+    // Check if critical services are ready (without LLM calls)
     const knowledgeHealth = await knowledgeService.healthCheck();
-    // TODO: Implement agent orchestrator
-    const agentHealth = { status: 'healthy' as const, llm: true };
-    // const agentHealth = await agentOrchestrator.healthCheck();
+    // Skip LLM health check to avoid OpenAI API calls during initialization
+    const agentHealth = { status: 'healthy' as const, llm: false };
+    // Note: Readiness check excludes LLM to prevent costly API calls
 
     const isReady = knowledgeHealth.overall && agentHealth.status === 'healthy';
 

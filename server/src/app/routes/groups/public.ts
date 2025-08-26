@@ -54,8 +54,38 @@ export const publicRoutesPlugin: FastifyPluginAsync = async (fastify: FastifyIns
   });
 
   // Redirect /docs to /documentation for convenience
-  fastify.get('/docs', async (request, reply) => {
+  fastify.get('/docs', {
+    schema: {
+      description: 'Redirect to Swagger documentation UI',
+      tags: ['Documentation'],
+      response: {
+        302: {
+          type: 'object',
+          properties: {
+            statusCode: { type: 'number' },
+            message: { type: 'string' }
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
     reply.redirect('/documentation');
+  });
+
+  // Serve OpenAPI JSON schema at /docs/json for backward compatibility
+  fastify.get('/docs/json', {
+    schema: {
+      description: 'OpenAPI JSON specification',
+      tags: ['Documentation'],
+      response: {
+        200: {
+          type: 'object',
+          description: 'OpenAPI 3.0 specification in JSON format'
+        }
+      }
+    }
+  }, async (request, reply) => {
+    return fastify.swagger();
   });
 
   // Root route with API info

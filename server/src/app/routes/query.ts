@@ -486,6 +486,19 @@ export async function queryRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/ask', {
     preHandler: [fastify.authenticate, validateRequest(QueryRequestSchema)],
     schema: {
+      description: 'Submit a single AI query for code intelligence',
+      tags: ['AI Query'],
+      body: {
+        type: 'object',
+        required: ['query'],
+        properties: {
+          query: { type: 'string', minLength: 1, maxLength: 10000 },
+          projectId: { type: 'string' },
+          sessionId: { type: 'string' },
+          context: { type: 'object' },
+          metadata: { type: 'object' }
+        }
+      },
       response: {
         200: {
           type: 'object',
@@ -495,6 +508,22 @@ export async function queryRoutes(fastify: FastifyInstance): Promise<void> {
             correlationId: { type: 'string' },
           },
         },
+        400: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            error: { type: 'string' },
+            message: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            error: { type: 'string' },
+            message: { type: 'string' }
+          }
+        }
       },
     },
   }, handleQuery);
@@ -502,17 +531,75 @@ export async function queryRoutes(fastify: FastifyInstance): Promise<void> {
   // Batch query endpoint
   fastify.post('/batch', {
     preHandler: [fastify.authenticate, validateRequest(BatchQueryRequestSchema)],
+    schema: {
+      description: 'Submit multiple AI queries in a single batch request',
+      tags: ['AI Query'],
+      body: {
+        type: 'object',
+        required: ['queries'],
+        properties: {
+          queries: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 10,
+            items: { type: 'object' }
+          },
+          projectId: { type: 'string' },
+          sessionId: { type: 'string' }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { type: 'array' },
+            correlationId: { type: 'string' }
+          }
+        }
+      }
+    }
   }, handleBatchQuery);
 
   // Conversation endpoint
   fastify.post('/conversation', {
     preHandler: [fastify.authenticate, validateRequest(ConversationRequestSchema)],
+    schema: {
+      description: 'Start or continue a conversational AI session',
+      tags: ['AI Query'],
+      body: {
+        type: 'object',
+        required: ['queries'],
+        properties: {
+          queries: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 20,
+            items: { type: 'object' }
+          },
+          projectId: { type: 'string' },
+          sessionId: { type: 'string' }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { type: 'object' },
+            correlationId: { type: 'string' }
+          }
+        }
+      }
+    }
   }, handleConversation);
 
   // Query history endpoint
   fastify.get('/history', {
     preHandler: [fastify.authenticate],
     schema: {
+      description: 'Retrieve query history for a user session or project',
+      tags: ['AI Query'],
       querystring: {
         type: 'object',
         properties: {
@@ -522,6 +609,16 @@ export async function queryRoutes(fastify: FastifyInstance): Promise<void> {
           offset: { type: 'number', minimum: 0, default: 0 },
         },
       },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: { type: 'array' },
+            correlationId: { type: 'string' }
+          }
+        }
+      }
     },
   }, handleQueryHistory);
 
@@ -553,7 +650,34 @@ export async function queryRoutes(fastify: FastifyInstance): Promise<void> {
   // Agent metrics endpoint (admin only)
   fastify.get('/metrics', {
     preHandler: [fastify.authenticate],
-    schema: {},
+    schema: {
+      description: 'Get AI agent performance metrics and reports',
+      tags: ['AI Query'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                metrics: { type: 'object' },
+                report: { type: 'object' }
+              }
+            },
+            correlationId: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            error: { type: 'string' },
+            message: { type: 'string' }
+          }
+        }
+      }
+    },
   }, async (request, reply) => {
     try {
       const metrics = agentService.getMetrics();

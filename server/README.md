@@ -76,7 +76,7 @@ For complete installation instructions, configuration details, and troubleshooti
 ## 📖 API Documentation
 
 Once the server is running, visit:
-- Swagger UI: `http://localhost:3000/docs`
+- Swagger UI: `http://localhost:3000/documentation`
 - API Schema: `http://localhost:3000/docs/json`
 
 ### Key Endpoints

@@ -18,6 +18,8 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   // Login endpoint
   fastify.post('/login', {
     schema: {
+      description: 'Authenticate user with email/username and password',
+      tags: ['Authentication'],
       body: {
         type: 'object',
         properties: {
@@ -25,6 +27,36 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           password: { type: 'string', minLength: 1 }
         },
         required: ['emailOrUsername', 'password']
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                username: { type: 'string' },
+                firstName: { type: 'string' },
+                lastName: { type: 'string' }
+              }
+            },
+            token: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {
@@ -55,6 +87,8 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   // Register endpoint
   fastify.post('/register', {
     schema: {
+      description: 'Register a new user account',
+      tags: ['Authentication'],
       body: {
         type: 'object',
         properties: {
@@ -65,6 +99,36 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           lastName: { type: 'string', maxLength: 50 }
         },
         required: ['email', 'username', 'password']
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                username: { type: 'string' },
+                firstName: { type: 'string' },
+                lastName: { type: 'string' }
+              }
+            },
+            message: { type: 'string' }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {
@@ -96,7 +160,49 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   });
 
   // Get current user profile
-  fastify.get('/profile', async (request, reply) => {
+  fastify.get('/profile', {
+    schema: {
+      description: 'Get current user profile information',
+      tags: ['Authentication'],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                username: { type: 'string' },
+                firstName: { type: 'string' },
+                lastName: { type: 'string' },
+                createdAt: { type: 'string' },
+                updatedAt: { type: 'string' }
+              }
+            }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        404: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
+      }
+    }
+  }, async (request, reply) => {
     try {
       const userId = (request as any).user?.id;
       if (!userId) {
@@ -119,12 +225,44 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   // Update user profile
   fastify.put('/profile', {
     schema: {
+      description: 'Update current user profile information',
+      tags: ['Authentication'],
       body: {
         type: 'object',
         properties: {
           firstName: { type: 'string', maxLength: 50 },
           lastName: { type: 'string', maxLength: 50 },
           email: { type: 'string', format: 'email' }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                username: { type: 'string' },
+                firstName: { type: 'string' },
+                lastName: { type: 'string' }
+              }
+            },
+            message: { type: 'string' }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
         }
       }
     }

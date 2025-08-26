@@ -20,6 +20,8 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Get all projects for user
   fastify.get('/', {
     schema: {
+      description: 'Get all projects for the authenticated user',
+      tags: ['Projects'],
       querystring: {
         type: 'object',
         properties: {
@@ -28,6 +30,45 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
           status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
           sortBy: { type: 'string', enum: ['name', 'createdAt', 'updatedAt'], default: 'updatedAt' },
           sortOrder: { type: 'string', enum: ['asc', 'desc'], default: 'desc' }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            projects: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  description: { type: 'string' },
+                  status: { type: 'string' }
+                }
+              }
+            },
+            metadata: {
+              type: 'object',
+              properties: {
+                total: { type: 'number' },
+                limit: { type: 'number' },
+                offset: { type: 'number' }
+              }
+            }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
         }
       }
     }
@@ -62,12 +103,50 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Get project by ID
   fastify.get('/:id', {
     schema: {
+      description: 'Get a specific project by ID',
+      tags: ['Projects'],
       params: {
         type: 'object',
         properties: {
           id: { type: 'string', format: 'uuid' }
         },
         required: ['id']
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            project: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                description: { type: 'string' },
+                status: { type: 'string' },
+                repositoryUrl: { type: 'string' },
+                settings: { type: 'object' }
+              }
+            }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        404: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {
@@ -95,6 +174,8 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Create new project
   fastify.post('/', {
     schema: {
+      description: 'Create a new project',
+      tags: ['Projects'],
       body: {
         type: 'object',
         properties: {
@@ -116,6 +197,34 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
           }
         },
         required: ['name']
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            project: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                description: { type: 'string' },
+                status: { type: 'string' }
+              }
+            }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {
@@ -143,6 +252,8 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Update project
   fastify.put('/:id', {
     schema: {
+      description: 'Update an existing project',
+      tags: ['Projects'],
       params: {
         type: 'object',
         properties: {
@@ -157,6 +268,34 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
           description: { type: 'string', maxLength: 500 },
           settings: { type: 'object' },
           status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] }
+        }
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            project: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                description: { type: 'string' },
+                status: { type: 'string' }
+              }
+            }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
         }
       }
     }
@@ -183,12 +322,48 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Delete project
   fastify.delete('/:id', {
     schema: {
+      description: 'Delete a project',
+      tags: ['Projects'],
       params: {
         type: 'object',
         properties: {
           id: { type: 'string', format: 'uuid' }
         },
         required: ['id']
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean' },
+            message: { type: 'string' },
+            deletedProject: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' }
+              }
+            }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {
@@ -220,12 +395,43 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Sync project
   fastify.post('/:id/sync', {
     schema: {
+      description: 'Synchronize project with repository',
+      tags: ['Projects'],
       params: {
         type: 'object',
         properties: {
           id: { type: 'string', format: 'uuid' }
         },
         required: ['id']
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            message: { type: 'string' },
+            syncedFiles: { type: 'number' }
+          }
+        },
+        400: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            message: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {
@@ -257,12 +463,45 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   // Get project members
   fastify.get('/:id/members', {
     schema: {
+      description: 'Get all members of a project',
+      tags: ['Projects'],
       params: {
         type: 'object',
         properties: {
           id: { type: 'string', format: 'uuid' }
         },
         required: ['id']
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            members: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  name: { type: 'string' },
+                  email: { type: 'string' },
+                  role: { type: 'string' }
+                }
+              }
+            }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        500: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        }
       }
     }
   }, async (request, reply) => {

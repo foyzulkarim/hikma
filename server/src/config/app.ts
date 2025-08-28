@@ -11,9 +11,9 @@ export const appConfig = {
 
   // Security Configuration
   security: {
-    jwtSecret: process.env.JWT_SECRET || 'your-super-secret-jwt-key',
+    jwtSecret: process.env.JWT_SECRET || '',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
-    encryptionKey: process.env.ENCRYPTION_KEY || 'your-32-character-encryption-key',
+    encryptionKey: process.env.ENCRYPTION_KEY || '',
     bcryptRounds: parseInt(process.env.BCRYPT_ROUNDS || '12', 10),
     corsOrigins: process.env.CORS_ORIGINS?.split(',') || ['*'],
   },
@@ -146,6 +146,7 @@ export class ConfigValidator {
     const required = [
       'DATABASE_URL',
       'JWT_SECRET',
+      'ENCRYPTION_KEY',
     ];
 
     for (const key of required) {
@@ -154,14 +155,33 @@ export class ConfigValidator {
       }
     }
 
-    // Validate JWT secret length
-    if (appConfig.security.jwtSecret.length < 32) {
-      errors.push('JWT_SECRET must be at least 32 characters long');
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // Validate JWT secret length (only if provided)
+    if (appConfig.security.jwtSecret && appConfig.security.jwtSecret.length < 32) {
+      if (isProduction) {
+        errors.push('JWT_SECRET must be at least 32 characters long in production');
+      }
     }
 
-    // Validate encryption key length
-    if (appConfig.security.encryptionKey.length !== 32) {
-      errors.push('ENCRYPTION_KEY must be exactly 32 characters long');
+    // Validate encryption key length (only if provided)
+    if (appConfig.security.encryptionKey && appConfig.security.encryptionKey.length !== 32) {
+      if (isProduction) {
+        errors.push('ENCRYPTION_KEY must be exactly 32 characters long in production');
+      }
+    }
+
+    // Check for insecure default values
+    if (appConfig.security.jwtSecret === 'your-super-secret-jwt-key') {
+      if (isProduction) {
+        errors.push('JWT_SECRET cannot use the default insecure value in production');
+      }
+    }
+
+    if (appConfig.security.encryptionKey === 'your-32-character-encryption-key') {
+      if (isProduction) {
+        errors.push('ENCRYPTION_KEY cannot use the default insecure value in production');
+      }
     }
 
     // Validate port range
@@ -173,6 +193,12 @@ export class ConfigValidator {
     if (appConfig.security.bcryptRounds < 10 || appConfig.security.bcryptRounds > 15) {
       errors.push('BCRYPT_ROUNDS must be between 10 and 15');
     }
+
+    // Validate external services configuration
+    ConfigValidator.validateExternalServices(errors);
+
+    // Validate production readiness
+    ConfigValidator.validateProductionReadiness(errors);
 
     // Log warnings for optional but recommended variables
     const recommended = [
@@ -193,6 +219,139 @@ export class ConfigValidator {
     }
 
     console.log('Configuration validation passed');
+  }
+
+  private static validateExternalServices(errors: string[]): void {
+    // GitHub validation
+    if (appConfig.external.github.token && appConfig.external.github.token.length < 10) {
+      errors.push('GITHUB_TOKEN appears to be invalid (too short)');
+    }
+
+    // Jira validation - if any Jira config is provided, all required fields should be present
+    const jiraConfig = appConfig.external.jira;
+    const hasJiraConfig = jiraConfig.url || jiraConfig.email || jiraConfig.apiToken;
+    if (hasJiraConfig) {
+      if (!jiraConfig.url) {
+        errors.push('JIRA_URL is required when Jira integration is configured');
+      }
+      if (!jiraConfig.email) {
+        errors.push('JIRA_EMAIL is required when Jira integration is configured');
+      }
+      if (!jiraConfig.apiToken) {
+        errors.push('JIRA_API_TOKEN is required when Jira integration is configured');
+      }
+      if (jiraConfig.url && !jiraConfig.url.startsWith('https://')) {
+        errors.push('JIRA_URL must use HTTPS protocol');
+      }
+    }
+
+    // Slack validation - if any Slack config is provided, required fields should be present
+    const slackConfig = appConfig.external.slack;
+    const hasSlackConfig = slackConfig.botToken || slackConfig.signingSecret || slackConfig.appToken;
+    if (hasSlackConfig) {
+      if (!slackConfig.botToken) {
+        errors.push('SLACK_BOT_TOKEN is required when Slack integration is configured');
+      }
+      if (!slackConfig.signingSecret) {
+        errors.push('SLACK_SIGNING_SECRET is required when Slack integration is configured');
+      }
+      if (slackConfig.botToken && !slackConfig.botToken.startsWith('xoxb-')) {
+        errors.push('SLACK_BOT_TOKEN appears to be invalid (should start with xoxb-)');
+      }
+    }
+
+    // LLM validation
+    if (appConfig.llm.provider === 'openai' && !appConfig.llm.apiKey) {
+      errors.push('OPENAI_API_KEY is required when using OpenAI as LLM provider');
+    }
+
+    // Vector DB validation
+    if (appConfig.vectorDb.provider === 'qdrant' && !appConfig.vectorDb.url) {
+      errors.push('QDRANT_URL is required when using Qdrant as vector database');
+    }
+  }
+
+  private static validateProductionReadiness(errors: string[]): void {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (!isProduction) {
+      console.log('Skipping production readiness checks (not in production mode)');
+      return;
+    }
+
+    const warnings: string[] = [];
+
+    // Check for development database URLs
+    if (process.env.DATABASE_URL?.includes('localhost') || 
+        process.env.DATABASE_URL?.includes('127.0.0.1')) {
+      warnings.push('DATABASE_URL appears to use localhost - ensure this is intentional for production');
+    }
+
+    // Check for development Redis URLs
+    if (process.env.REDIS_URL?.includes('localhost') || 
+        process.env.REDIS_URL?.includes('127.0.0.1')) {
+      warnings.push('REDIS_URL appears to use localhost - ensure this is intentional for production');
+    }
+
+    // Check for development Neo4j URLs
+    if (process.env.NEO4J_URL?.includes('localhost') || 
+        process.env.NEO4J_URL?.includes('127.0.0.1')) {
+      warnings.push('NEO4J_URL appears to use localhost - ensure this is intentional for production');
+    }
+
+    // Check for development Qdrant URLs
+    if (process.env.QDRANT_URL?.includes('localhost') || 
+        process.env.QDRANT_URL?.includes('127.0.0.1')) {
+      warnings.push('QDRANT_URL appears to use localhost - ensure this is intentional for production');
+    }
+
+    // Check for weak passwords in URLs
+    const weakPasswords = ['password', '123', 'admin', 'root', 'test'];
+    const urlsToCheck = [
+      process.env.DATABASE_URL,
+      process.env.REDIS_URL,
+      process.env.NEO4J_URL
+    ];
+
+    urlsToCheck.forEach((url, index) => {
+      if (url) {
+        const urlNames = ['DATABASE_URL', 'REDIS_URL', 'NEO4J_URL'];
+        weakPasswords.forEach(weakPass => {
+          if (url.includes(weakPass)) {
+            errors.push(`${urlNames[index]} contains weak password pattern '${weakPass}'`);
+          }
+        });
+      }
+    });
+
+    // Check for development mode flags
+    if (process.env.DEV_LOG_SQL_QUERIES === 'true') {
+      warnings.push('DEV_LOG_SQL_QUERIES is enabled - consider disabling in production for performance');
+    }
+
+    // Check for missing CORS origins in production
+    if (!process.env.CORS_ORIGINS || process.env.CORS_ORIGINS === '*') {
+      warnings.push('CORS_ORIGINS is not properly configured - using wildcard (*) is not recommended for production');
+    }
+
+    // Check for default encryption key length
+    if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
+      errors.push('ENCRYPTION_KEY should be at least 32 characters long for production use');
+    }
+
+    // Check for HTTPS requirements
+    if (process.env.JIRA_URL && !process.env.JIRA_URL.startsWith('https://')) {
+      warnings.push('JIRA_URL should use HTTPS in production');
+    }
+
+    // Log warnings
+    if (warnings.length > 0) {
+      console.warn('Production configuration warnings:', warnings);
+    }
+
+    if (warnings.length === 0) {
+      console.log('Production readiness validation completed successfully');
+    }
   }
 }
 

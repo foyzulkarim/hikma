@@ -15,10 +15,16 @@ npm install
 docker-compose up -d postgres redis neo4j qdrant
 npm run db:generate
 npm run db:push
+npm run seed
 npm run dev
 ```
 
 Then visit `http://localhost:3000/api/v1/health` to verify everything is working.
+
+**🔑 Login with seeded credentials:**
+- Admin: `admin@hikma.com` / `admin123`
+- User: `user@hikma.com` / `user123`
+- Viewer: `viewer@hikma.com` / `viewer123`
 
 ---
 
@@ -140,7 +146,56 @@ npm run db:push
 npm run db:studio
 ```
 
-### Step 5: Start the Application
+### Step 5: Seed Development Data
+
+To get started quickly with test users and projects, run the seeding scripts:
+
+```bash
+# Seed with default development data (recommended for first-time setup)
+npm run seed
+
+# Or use versioned seeding with specific datasets
+npm run seed:version -- --version development
+```
+
+**Available Seed Versions:**
+
+```bash
+# List all available seed versions
+npm run seed:list
+```
+
+| Version | Description | Users | Projects |
+|---------|-------------|-------|----------|
+| `minimal` | Just admin user | 1 | 0 |
+| `development` | Full dev setup (default) | 3 | 1 |
+| `testing` | Complex test scenarios | 4 | 2 |
+
+**🔑 Default Login Credentials:**
+
+After running the seed script, you can login with these accounts:
+
+| Role | Email | Username | Password | Access Level |
+|------|-------|----------|----------|-------------|
+| **Admin** | `admin@hikma.com` | `admin` | `admin123` | Full system access |
+| **User** | `user@hikma.com` | `demo-user` | `user123` | Standard user features |
+| **Viewer** | `viewer@hikma.com` | `viewer` | `viewer123` | Read-only access |
+
+> **⚠️ Security Note**: These are development credentials only. Change them before deploying to production!
+
+**Seeding Options:**
+
+```bash
+# Seed specific version
+npm run seed:version -- --version minimal
+npm run seed:version -- --version development  
+npm run seed:version -- --version testing
+
+# Custom credentials via environment variables
+SEED_ADMIN_EMAIL=admin@mycompany.com SEED_ADMIN_PASSWORD=mypassword npm run seed
+```
+
+### Step 6: Start the Application
 
 ```bash
 # Development mode with hot reload
@@ -192,10 +247,30 @@ Visit `http://localhost:3000/docs` to see the interactive API documentation.
 
 ## 🧪 Testing the System
 
-### 1. Create a User
+### 1. Login with Seeded Users
+
+If you've run the seed scripts (recommended), you can immediately login with these accounts:
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/users \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"email\": \"test@example.com\",\n    \"username\": \"testuser\",\n    \"password\": \"password123\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"User\"\n  }'
+# Login as admin
+curl -X POST http://localhost:3000/api/v1/auth/login \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\n    \"email\": \"admin@hikma.com\",\n    \"password\": \"admin123\"\n  }'
+
+# Login as regular user  
+curl -X POST http://localhost:3000/api/v1/auth/login \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\n    \"email\": \"user@hikma.com\",\n    \"password\": \"user123\"\n  }'
+```
+
+### 1a. Create a User (Alternative)
+
+If you haven't run the seed scripts, you can manually create a user:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/users \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\n    \"email\": \"test@example.com\",\n    \"username\": \"testuser\",\n    \"password\": \"password123\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"User\"\n  }'
 ```
 
 ### 2. Create a Project
@@ -226,6 +301,9 @@ curl -X POST http://localhost:3000/api/v1/query \\\n  -H \"Content-Type: applica
 | `npm run lint` | Check code style |
 | `npm run format` | Format code |
 | `npm run typecheck` | TypeScript type checking |
+| `npm run seed` | Seed database with development data |
+| `npm run seed:version` | Seed with specific version (minimal/development/testing) |
+| `npm run seed:list` | List available seed versions |
 
 ### Database Management
 

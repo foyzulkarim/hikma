@@ -10,6 +10,8 @@ const neo4jConfig = {
   maxConnectionPoolSize: parseInt(process.env.NEO4J_MAX_POOL_SIZE || '50', 10),
   connectionAcquisitionTimeout: parseInt(process.env.NEO4J_CONNECTION_TIMEOUT || '60000', 10),
   maxTransactionRetryTime: parseInt(process.env.NEO4J_RETRY_TIME || '30000', 10),
+  maxRetries: parseInt(process.env.NEO4J_MAX_RETRIES || '3', 10),
+  retryDelayMs: parseInt(process.env.NEO4J_RETRY_DELAY || '1000', 10),
 };
 
 // Create Neo4j driver
@@ -48,18 +50,34 @@ export class Neo4jManager {
   }
 
   public async connect(): Promise<void> {
-    try {
-      // Verify connectivity
-      const session = this.driver.session({ database: neo4jConfig.database });
-      await session.run('RETURN 1');
-      await session.close();
-      
-      this.isConnected = true;
-      logger.info('Neo4j connected successfully');
-    } catch (error) {
-      logger.error({ error }, 'Failed to connect to Neo4j');
-      throw error;
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= neo4jConfig.maxRetries; attempt++) {
+      try {
+        // Verify connectivity
+        const session = this.driver.session({ database: neo4jConfig.database });
+        await session.run('RETURN 1');
+        await session.close();
+        
+        this.isConnected = true;
+        logger.info({ attempt }, 'Neo4j connected successfully');
+        return;
+      } catch (error: any) {
+        lastError = error;
+        logger.warn({ 
+          error: error.message, 
+          attempt, 
+          maxRetries: neo4jConfig.maxRetries 
+        }, 'Neo4j connection attempt failed');
+        
+        if (attempt < neo4jConfig.maxRetries) {
+          await this.delay(neo4jConfig.retryDelayMs * attempt);
+        }
+      }
     }
+    
+    logger.error({ error: lastError }, 'Failed to connect to Neo4j after all retries');
+    throw lastError;
   }
 
   public async disconnect(): Promise<void> {
@@ -83,6 +101,10 @@ export class Neo4jManager {
       logger.error({ error }, 'Neo4j health check failed');
       return false;
     }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   public isHealthy(): boolean {

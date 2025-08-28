@@ -8,12 +8,16 @@ const qdrantConfig = {
   collectionName: process.env.QDRANT_COLLECTION_NAME || 'hikma-embeddings',
   dimension: parseInt(process.env.QDRANT_DIMENSION || '1536', 10), // OpenAI text-embedding-3-small
   distance: process.env.QDRANT_DISTANCE || 'Cosine', // Cosine, Euclidean, Dot
+  maxRetries: parseInt(process.env.QDRANT_MAX_RETRIES || '3', 10),
+  retryDelayMs: parseInt(process.env.QDRANT_RETRY_DELAY || '1000', 10),
+  timeoutMs: parseInt(process.env.QDRANT_TIMEOUT || '30000', 10),
 };
 
 // Create Qdrant client
 export const qdrant = new QdrantClient({
   url: qdrantConfig.url,
   apiKey: qdrantConfig.apiKey,
+  timeout: qdrantConfig.timeoutMs,
 });
 
 // Vector database management
@@ -36,39 +40,56 @@ export class VectorDbManager {
   }
 
   public async connect(): Promise<void> {
-    try {
-      // Check if collection exists, create if not
-      const collections = await this.qdrant.getCollections();
-      const collectionExists = collections.collections.some(
-        (col: any) => col.name === this.collectionName
-      );
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= qdrantConfig.maxRetries; attempt++) {
+      try {
+        // Check if collection exists, create if not
+        const collections = await this.qdrant.getCollections();
+        const collectionExists = collections.collections.some(
+          (col: any) => col.name === this.collectionName
+        );
 
-      if (!collectionExists) {
-        logger.info(`Collection '${this.collectionName}' not found, creating it.`);
-        await this.qdrant.createCollection(this.collectionName, {
-          vectors: {
-            size: qdrantConfig.dimension,
-            distance: qdrantConfig.distance as any,
+        if (!collectionExists) {
+          logger.info(`Collection '${this.collectionName}' not found, creating it.`);
+          await this.qdrant.createCollection(this.collectionName, {
+            vectors: {
+              size: qdrantConfig.dimension,
+              distance: qdrantConfig.distance as any,
+            },
+          });
+          logger.info(`Collection '${this.collectionName}' created successfully.`);
+        }
+
+        // Test connection by getting collection info
+        await this.qdrant.getCollection(this.collectionName);
+
+        this.isConnected = true;
+        logger.info(
+          {
+            url: qdrantConfig.url,
+            collectionName: this.collectionName,
+            attempt,
           },
-        });
-        logger.info(`Collection '${this.collectionName}' created successfully.`);
+          'Qdrant connected successfully'
+        );
+        return;
+      } catch (error: any) {
+        lastError = error;
+        logger.warn({ 
+          error: error.message, 
+          attempt, 
+          maxRetries: qdrantConfig.maxRetries 
+        }, 'Qdrant connection attempt failed');
+        
+        if (attempt < qdrantConfig.maxRetries) {
+          await this.delay(qdrantConfig.retryDelayMs * attempt);
+        }
       }
-
-      // Test connection by getting collection info
-      await this.qdrant.getCollection(this.collectionName);
-
-      this.isConnected = true;
-      logger.info(
-        {
-          url: qdrantConfig.url,
-          collectionName: this.collectionName,
-        },
-        'Qdrant connected successfully'
-      );
-    } catch (error) {
-      logger.error({ error }, 'Failed to connect to Qdrant');
-      throw error;
     }
+    
+    logger.error({ error: lastError }, 'Failed to connect to Qdrant after all retries');
+    throw lastError;
   }
 
   public async disconnect(): Promise<void> {
@@ -91,6 +112,10 @@ export class VectorDbManager {
       logger.error({ error }, 'Qdrant health check failed');
       return false;
     }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   public isHealthy(): boolean {

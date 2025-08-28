@@ -1,24 +1,50 @@
 import Redis, { RedisOptions } from 'ioredis';
 import { logger } from '@/core/utils/logger';
 
+// Parse Redis URL if provided, otherwise use individual environment variables
+function parseRedisConfig(): RedisOptions {
+  const redisUrl = process.env.REDIS_URL;
+  
+  let baseConfig: Partial<RedisOptions> = {};
+  
+  if (redisUrl) {
+    try {
+      const url = new URL(redisUrl);
+      baseConfig = {
+        host: url.hostname,
+        port: parseInt(url.port) || 6379,
+        password: url.password || undefined,
+        db: url.pathname ? parseInt(url.pathname.slice(1)) || 0 : 0,
+      };
+      logger.info('Using Redis configuration from REDIS_URL');
+    } catch (error) {
+      logger.warn({ error }, 'Invalid REDIS_URL format, falling back to individual environment variables');
+    }
+  }
+  
+  // Individual environment variables take precedence over URL parsing
+  return {
+    host: process.env.REDIS_HOST || baseConfig.host || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || String(baseConfig.port || 6379), 10),
+    password: process.env.REDIS_PASSWORD || baseConfig.password,
+    db: parseInt(process.env.REDIS_DB || String(baseConfig.db || 0), 10),
+    maxRetriesPerRequest: parseInt(process.env.REDIS_MAX_RETRIES_PER_REQUEST || '3', 10),
+    lazyConnect: true,
+    keepAlive: parseInt(process.env.REDIS_KEEP_ALIVE || '30000', 10),
+    connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT || '10000', 10),
+    commandTimeout: parseInt(process.env.REDIS_COMMAND_TIMEOUT || '5000', 10),
+    family: 4, // IPv4
+  };
+}
+
 // Redis Configuration
-const redisConfig: RedisOptions = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379', 10),
-  password: process.env.REDIS_PASSWORD,
-  db: parseInt(process.env.REDIS_DB || '0', 10),
-  maxRetriesPerRequest: 3,
-  lazyConnect: true,
-  keepAlive: 30000,
-  connectTimeout: 10000,
-  commandTimeout: 5000,
-  family: 4, // IPv4
-};
+const redisConfig: RedisOptions = parseRedisConfig();
 
 // Create Redis instances
 export const redis = new Redis(redisConfig);
 export const redisSubscriber = new Redis(redisConfig);
 export const redisPublisher = new Redis(redisConfig);
+export const queueRedis = new Redis(redisConfig);
 
 // Redis connection management
 export class RedisManager {
@@ -39,27 +65,45 @@ export class RedisManager {
   private setupEventHandlers(): void {
     // Main Redis client events
     redis.on('connect', () => {
-      logger.info('Redis connected');
+      logger.info({ host: redisConfig.host, port: redisConfig.port, db: redisConfig.db }, 'Redis connected successfully');
       this.isConnected = true;
     });
 
     redis.on('ready', () => {
-      logger.info('Redis ready');
+      logger.info('Redis ready and accepting commands');
     });
 
-    redis.on('error', (error) => {
-      logger.error({ error }, 'Redis error');
-      this.isConnected = false;
-    });
+    redis.on('error', (error: any) => {
+       const errorContext = {
+         error: error.message,
+         code: error.code || 'UNKNOWN',
+         host: redisConfig.host,
+         port: redisConfig.port,
+         hasPassword: !!redisConfig.password,
+       };
+       
+       if (error.code === 'ECONNREFUSED') {
+         logger.error(errorContext, 'Redis connection refused - check if Redis server is running');
+       } else if (error.code === 'ENOTFOUND') {
+         logger.error(errorContext, 'Redis host not found - check REDIS_HOST configuration');
+       } else if (error.message && error.message.includes('NOAUTH')) {
+         logger.error(errorContext, 'Redis authentication failed - check REDIS_PASSWORD configuration');
+       } else if (error.message && error.message.includes('WRONGPASS')) {
+         logger.error(errorContext, 'Redis authentication failed - incorrect password');
+       } else {
+         logger.error(errorContext, 'Redis connection error');
+       }
+       this.isConnected = false;
+     });
 
     redis.on('close', () => {
-      logger.warn('Redis connection closed');
+      logger.warn({ host: redisConfig.host, port: redisConfig.port }, 'Redis connection closed');
       this.isConnected = false;
     });
 
-    redis.on('reconnecting', () => {
-      logger.info('Redis reconnecting');
-    });
+    redis.on('reconnecting', (delay: number) => {
+       logger.info({ delay, host: redisConfig.host, port: redisConfig.port }, 'Redis reconnecting after delay');
+     });
 
     // Subscriber events
     redisSubscriber.on('connect', () => {

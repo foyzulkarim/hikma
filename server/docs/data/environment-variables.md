@@ -47,9 +47,15 @@ DEV_LOG_SQL_QUERIES=false          # Log SQL queries in development
 # Redis configuration
 REDIS_HOST=localhost                # Redis host
 REDIS_PORT=6379                    # Redis port
-REDIS_PASSWORD=                    # Redis password (optional)
+REDIS_PASSWORD=redis123            # Redis password (required for authentication)
 REDIS_DB=0                         # Redis database number
-REDIS_URL=redis://localhost:6379   # Full Redis URL (alternative to individual settings)
+REDIS_URL=redis://:redis123@localhost:6379 # Full Redis URL (alternative to individual settings)
+
+# Advanced Redis connection settings (optional)
+REDIS_MAX_RETRIES_PER_REQUEST=3    # Max retries per request (default: 3)
+REDIS_CONNECT_TIMEOUT=10000        # Connection timeout in ms (default: 10000)
+REDIS_COMMAND_TIMEOUT=5000         # Command timeout in ms (default: 5000)
+REDIS_KEEP_ALIVE=30000            # Keep alive interval in ms (default: 30000)
 ```
 
 ### Qdrant (Vector Database)
@@ -189,18 +195,17 @@ TRACING_ENABLED=false               # Enable distributed tracing
 HEALTH_CHECK_INTERVAL=30000         # Health check interval in ms
 METRICS_PATH=/metrics               # Metrics endpoint path
 HEALTH_PATH=/health                 # Health check endpoint path
-```
-
 ## 📬 Queue System
 
 ### Job Queue Configuration
 ```bash
 # Queue system settings
-QUEUE_REDIS_URL=redis://localhost:6379 # Queue Redis URL
+QUEUE_REDIS_URL=redis://:redis123@localhost:6379 # Queue Redis URL (with authentication)
 QUEUE_CONCURRENCY=5                 # Queue concurrency level
 QUEUE_MAX_RETRIES=3                 # Max job retry attempts
 QUEUE_REMOVE_COMPLETE=100           # Keep N completed jobs
 QUEUE_REMOVE_FAILED=50              # Keep N failed jobs
+```
 QUEUE_BACKOFF_DELAY=2000            # Backoff delay in ms
 ```
 

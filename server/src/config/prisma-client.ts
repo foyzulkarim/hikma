@@ -22,6 +22,19 @@ const prismaConfig = {
     },
   ],
   errorFormat: 'pretty' as const,
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+};
+
+// Database connection retry configuration
+const dbRetryConfig = {
+  maxRetries: parseInt(process.env.DB_MAX_RETRIES || '3', 10),
+  retryDelayMs: parseInt(process.env.DB_RETRY_DELAY || '2000', 10),
+  connectionTimeoutMs: parseInt(process.env.DB_CONNECTION_TIMEOUT || '10000', 10),
+  queryTimeoutMs: parseInt(process.env.DB_QUERY_TIMEOUT || '30000', 10),
 };
 
 // Create Prisma Client instance
@@ -74,14 +87,41 @@ export class DatabaseManager {
   }
 
   public async connect(): Promise<void> {
-    try {
-      await prisma.$connect();
-      this.isConnected = true;
-      logger.info('Database connected successfully');
-    } catch (error) {
-      logger.error({ error }, 'Failed to connect to database');
-      throw error;
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= dbRetryConfig.maxRetries; attempt++) {
+      try {
+        // Set connection timeout
+        const connectPromise = prisma.$connect();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Connection timeout')), dbRetryConfig.connectionTimeoutMs);
+        });
+        
+        await Promise.race([connectPromise, timeoutPromise]);
+        
+        this.isConnected = true;
+        logger.info({
+          attempt,
+          connectionTimeout: dbRetryConfig.connectionTimeoutMs,
+        }, 'Database connected successfully');
+        return;
+      } catch (error: any) {
+        lastError = error;
+        logger.warn({ 
+          error: error.message, 
+          attempt, 
+          maxRetries: dbRetryConfig.maxRetries,
+          code: error.code || 'UNKNOWN'
+        }, 'Database connection attempt failed');
+        
+        if (attempt < dbRetryConfig.maxRetries) {
+          await this.delay(dbRetryConfig.retryDelayMs * attempt);
+        }
+      }
     }
+    
+    logger.error({ error: lastError }, 'Failed to connect to database after all retries');
+    throw lastError;
   }
 
   public async disconnect(): Promise<void> {
@@ -97,12 +137,22 @@ export class DatabaseManager {
 
   public async healthCheck(): Promise<boolean> {
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      // Add timeout to health check query
+      const queryPromise = prisma.$queryRaw`SELECT 1`;
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Health check timeout')), dbRetryConfig.queryTimeoutMs);
+      });
+      
+      await Promise.race([queryPromise, timeoutPromise]);
       return true;
     } catch (error) {
       logger.error({ error }, 'Database health check failed');
       return false;
     }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   public isHealthy(): boolean {

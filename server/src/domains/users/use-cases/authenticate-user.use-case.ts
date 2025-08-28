@@ -1,4 +1,5 @@
-import { UserService } from '../services/user.service';
+import { AuthService } from '../auth/service';
+import { UserContext } from '../auth/types';
 
 export interface AuthenticateUserRequest {
   emailOrUsername: string;
@@ -7,19 +8,12 @@ export interface AuthenticateUserRequest {
 
 export interface AuthenticateUserResponse {
   success: boolean;
-  user?: {
-    id: string;
-    email: string;
-    username: string;
-    fullName: string;
-    role: string;
-    isActive: boolean;
-  };
+  user?: UserContext;
   message?: string;
 }
 
 export class AuthenticateUserUseCase {
-  constructor(private userService: UserService) {}
+  constructor(private authService: AuthService) {}
 
   async execute(request: AuthenticateUserRequest): Promise<AuthenticateUserResponse> {
     try {
@@ -32,24 +26,14 @@ export class AuthenticateUserUseCase {
       }
 
       // Authenticate user
-      const user = await this.userService.authenticateUser(
+      const { user } = await this.authService.authenticateWithPassword(
         request.emailOrUsername,
         request.password
       );
 
-      if (!user) {
-        return {
-          success: false,
-          message: 'Invalid credentials or inactive account'
-        };
-      }
-
       return {
         success: true,
-        user: {
-          ...user.toSafeResponse(),
-          email: user.email
-        }
+        user,
       };
 
     } catch (error) {

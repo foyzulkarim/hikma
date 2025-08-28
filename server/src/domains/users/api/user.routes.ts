@@ -4,15 +4,19 @@ import { UserRepository } from '../repositories/user.repository';
 import { UserService } from '../services/user.service';
 import { AuthenticateUserUseCase } from '../use-cases/authenticate-user.use-case';
 import { CreateUserUseCase } from '../use-cases/create-user.use-case';
+import { AuthService } from '../auth/service';
+import { PasswordUtils } from '@/core/utils/crypto';
+import { eventBus } from '@/shared/events';
 
 export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Initialize dependencies
   const prisma = fastify.prisma as PrismaClient;
   const repository = new UserRepository(prisma);
   const service = new UserService(repository);
+  const authService = new AuthService(repository, eventBus);
   
   // Initialize use cases
-  const authenticateUserUseCase = new AuthenticateUserUseCase(service);
+  const authenticateUserUseCase = new AuthenticateUserUseCase(authService);
   const createUserUseCase = new CreateUserUseCase(service);
 
   // Login endpoint
@@ -42,7 +46,13 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
                 lastName: { type: 'string' }
               }
             },
-            token: { type: 'string' }
+            tokens: {
+              type: 'object',
+              properties: {
+                accessToken: { type: 'string' },
+                refreshToken: { type: 'string' },
+              }
+            }
           }
         },
         401: {
@@ -68,14 +78,15 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
         password: body.password
       });
 
-      if (!result.success) {
+      if (!result.success || !result.user) {
         return reply.status(401).send({ error: result.message });
       }
 
-      // TODO: Generate JWT token here
+      const tokens = await authService.generateTokens(result.user);
+
       return reply.send({
         user: result.user,
-        token: 'mock-jwt-token' // Replace with actual JWT generation
+        tokens,
       });
     } catch (error) {
       return reply.status(500).send({ 
@@ -135,11 +146,12 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     try {
       const body = request.body as any;
       
-      // TODO: Hash password before creating user
+      const hashedPassword = await PasswordUtils.hash(body.password);
+
       const result = await createUserUseCase.execute({
         email: body.email,
         username: body.username,
-        password: body.password, // Should be hashed
+        password: hashedPassword,
         firstName: body.firstName,
         lastName: body.lastName
       });

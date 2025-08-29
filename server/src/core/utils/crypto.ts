@@ -120,7 +120,7 @@ export interface JWTPayload {
 
 export class JWTUtils {
   private static readonly secret = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
-  private static readonly expiresIn = process.env.JWT_EXPIRES_IN || '24h';
+  private static readonly expiresIn = process.env.JWT_EXPIRES_IN || '1h';
 
   static generateToken(payload: Omit<JWTPayload, 'iat' | 'exp' | 'jti'>): string {
     try {

@@ -7,7 +7,7 @@ import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { config } from '@/config/app';
+import { config, appConfig } from '@/config/app';
 import { logger } from '@/core/utils/logger';
 import { globalErrorHandler } from './middleware/error-handler';
 import { 
@@ -114,7 +114,7 @@ async function registerPlugins(server: FastifyInstance): Promise<void> {
       },
       servers: [
         {
-          url: 'http://localhost:3000',
+          url: `http://localhost:${appConfig.server.port}`,
           description: 'Development server',
         },
         {

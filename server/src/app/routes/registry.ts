@@ -72,6 +72,13 @@ export class RouteRegistry {
     // Manually specify known route files with explicit configurations
     const knownRoutes = [
       {
+        name: 'auth',
+        path: 'src/domains/users/api/user.routes.ts',
+        prefix: '/api/v1/auth',
+        requiresAuth: false,
+        exportName: 'userRoutes'
+      },
+      {
         name: 'health',
         path: 'src/app/routes/health.ts',
         prefix: '/api/v1/health',
@@ -98,14 +105,7 @@ export class RouteRegistry {
         prefix: '/api/v1/projects',
         requiresAuth: true,
         exportName: 'projectRoutes'
-      },
-      {
-        name: 'auth',
-        path: 'src/domains/users/api/user.routes.ts',
-        prefix: '/api/v1/auth',
-        requiresAuth: false,
-        exportName: 'userRoutes'
-      }
+      }      
     ];
 
     for (const routeInfo of knownRoutes) {

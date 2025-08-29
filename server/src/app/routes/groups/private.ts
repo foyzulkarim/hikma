@@ -30,10 +30,32 @@ export const privateRoutesPlugin: FastifyPluginAsync = async (fastify: FastifyIn
         200: {
           type: 'object',
           properties: {
-            user: { type: 'object' }
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                username: { type: 'string' },
+                firstName: { type: ['string', 'null'] },
+                lastName: { type: ['string', 'null'] },
+                fullName: { type: 'string' },
+                displayName: { type: 'string' },
+                role: { type: 'string' },
+                isActive: { type: 'boolean' },
+                createdAt: { type: 'string' },
+                updatedAt: { type: 'string' }
+              },
+              required: ['id', 'email', 'username', 'fullName', 'displayName', 'role', 'isActive', 'createdAt', 'updatedAt']
+            }
           }
         },
         401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
+          }
+        },
+        404: {
           type: 'object',
           properties: {
             error: { type: 'string' }
@@ -43,6 +65,7 @@ export const privateRoutesPlugin: FastifyPluginAsync = async (fastify: FastifyIn
     }
   }, async (request, reply) => {
     const userId = (request as any).user?.id;
+    
     if (!userId) {
       return reply.status(401).send({ error: 'Authentication required' });
     }
@@ -52,6 +75,7 @@ export const privateRoutesPlugin: FastifyPluginAsync = async (fastify: FastifyIn
     const service = new UserService(repository);
 
     const user = await service.getUser(userId);
+    
     if (!user) {
       return reply.status(404).send({ error: 'User not found' });
     }
@@ -79,6 +103,12 @@ export const privateRoutesPlugin: FastifyPluginAsync = async (fastify: FastifyIn
           properties: {
             user: { type: 'object' },
             message: { type: 'string' }
+          }
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: { type: 'string' }
           }
         }
       }

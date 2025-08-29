@@ -171,6 +171,143 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     }
   });
 
-  // Profile routes have been moved to /api/v1/user/profile in private.ts
-  // to avoid duplicate endpoints in Swagger documentation
+  // Private routes (require authentication)
+  await fastify.register(async function authenticatedRoutes(fastify) {
+    // Add authentication hook for all routes in this plugin
+    fastify.addHook('preHandler', fastify.authenticate);
+
+    // Get user profile
+    fastify.get('/profile', {
+      schema: {
+        description: 'Get current user profile',
+        tags: ['User'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              user: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  email: { type: 'string' },
+                  username: { type: 'string' },
+                  firstName: { type: ['string', 'null'] },
+                  lastName: { type: ['string', 'null'] },
+                  fullName: { type: 'string' },
+                  displayName: { type: 'string' },
+                  role: { type: 'string' },
+                  isActive: { type: 'boolean' },
+                  createdAt: { type: 'string' },
+                  updatedAt: { type: 'string' }
+                },
+                required: ['id', 'email', 'username', 'fullName', 'displayName', 'role', 'isActive', 'createdAt', 'updatedAt']
+              }
+            }
+          },
+          401: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' }
+            }
+          },
+          404: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' }
+            }
+          }
+        }
+      }
+    }, async (request, reply) => {
+      const userId = (request as any).user?.id;
+      
+      if (!userId) {
+        return reply.status(401).send({ error: 'Authentication required' });
+      }
+
+      const user = await service.getUser(userId);
+      
+      if (!user) {
+        return reply.status(404).send({ error: 'User not found' });
+      }
+
+      return { user: user.toResponse() };
+    });
+
+    // Update user profile
+    fastify.put('/profile', {
+      schema: {
+        description: 'Update current user profile',
+        tags: ['User'],
+        security: [{ bearerAuth: [] }],
+        body: {
+          type: 'object',
+          properties: {
+            firstName: { type: 'string', maxLength: 50 },
+            lastName: { type: 'string', maxLength: 50 },
+            email: { type: 'string', format: 'email' }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              user: { type: 'object' },
+              message: { type: 'string' }
+            }
+          },
+          401: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' }
+            }
+          }
+        }
+      }
+    }, async (request, reply) => {
+      const userId = (request as any).user?.id;
+      if (!userId) {
+        return reply.status(401).send({ error: 'Authentication required' });
+      }
+
+      const body = request.body as any;
+      
+      const user = await service.updateUser(userId, body);
+
+      return { 
+        user: user.toResponse(),
+        message: 'Profile updated successfully'
+      };
+    });
+
+    // Get user session info
+    fastify.get('/session', {
+      schema: {
+        description: 'Get current user session information',
+        tags: ['User', 'Session'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              userId: { type: 'string' },
+              sessionId: { type: 'string' },
+              permissions: { type: 'array' },
+              expiresAt: { type: 'string' }
+            }
+          }
+        }
+      }
+    }, async (request, reply) => {
+      const user = (request as any).user;
+      
+      return {
+        userId: user?.id,
+        sessionId: request.id,
+        permissions: user?.permissions || [],
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours from now
+      };
+    });
+  });
 };

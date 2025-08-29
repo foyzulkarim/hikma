@@ -1,7 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { RouteRegistry } from './registry';
 import { publicRoutesPlugin } from './groups/public';
-import { privateRoutesPlugin } from './groups/private';
 import { logger } from '@/core/utils/logger';
 
 /**
@@ -73,9 +72,6 @@ export class RouteManager {
     try {
       // Register root-level public routes first (no prefix)
       await fastify.register(publicRoutesPlugin);
-      
-      // Register root-level private routes (no prefix, but with auth)
-      await fastify.register(privateRoutesPlugin);
 
       // Register discovered routes through registry
       await this.registry.registerWithFastify(fastify);

@@ -262,58 +262,7 @@ export class ProjectRepository implements IProjectRepository {
     return !!project;
   }
 
-  async addMember(projectId: string, userId: string, role: string): Promise<void> {
-    await this.prisma.projectMember.create({
-      data: {
-        projectId,
-        userId,
-        role: role as MemberRole
-      }
-    });
-  }
 
-  async removeMember(projectId: string, userId: string): Promise<void> {
-    await this.prisma.projectMember.deleteMany({
-      where: {
-        projectId,
-        userId
-      }
-    });
-  }
-
-  async updateMemberRole(projectId: string, userId: string, role: string): Promise<void> {
-    await this.prisma.projectMember.updateMany({
-      where: {
-        projectId,
-        userId
-      },
-      data: {
-        role: role as MemberRole
-      }
-    });
-  }
-
-  async getMembers(projectId: string): Promise<Array<{
-    id: string;
-    userId: string;
-    role: string;
-    createdAt: Date;
-  }>> {
-    const members = await this.prisma.projectMember.findMany({
-      where: { projectId },
-      select: {
-        id: true,
-        userId: true,
-        role: true,
-        createdAt: true
-      }
-    });
-
-    return members.map(member => ({
-      ...member,
-      role: member.role as string
-    }));
-  }
 
   async isSlugAvailable(slug: string, excludeId?: string): Promise<boolean> {
     const whereClause: any = { slug };

@@ -1,13 +1,13 @@
 import { ProjectEntity } from '../entities/project.entity';
 import { ProjectService } from '../services/project.service';
+import { BaseUseCase, BaseRequest, BaseResponse } from './base.use-case';
 
-export interface CreateProjectRequest {
+export interface CreateProjectRequest extends BaseRequest {
   name: string;
   description?: string;
   repositoryUrl?: string;
   repositoryPath?: string;
   branch?: string;
-  userId: string;
   settings?: {
     includePatterns?: string[];
     excludePatterns?: string[];
@@ -18,7 +18,7 @@ export interface CreateProjectRequest {
   };
 }
 
-export interface CreateProjectResponse {
+export interface CreateProjectResponse extends BaseResponse {
   project: {
     id: string;
     name: string;
@@ -33,8 +33,10 @@ export interface CreateProjectResponse {
   };
 }
 
-export class CreateProjectUseCase {
-  constructor(private projectService: ProjectService) {}
+export class CreateProjectUseCase extends BaseUseCase<CreateProjectRequest, CreateProjectResponse> {
+  constructor(private projectService: ProjectService) {
+    super();
+  }
 
   async execute(request: CreateProjectRequest): Promise<CreateProjectResponse> {
     // Validate input
@@ -79,22 +81,21 @@ export class CreateProjectUseCase {
     };
   }
 
-  private validateRequest(request: CreateProjectRequest): void {
-    if (!request.name || request.name.trim().length === 0) {
-      throw new Error('Project name is required');
+  protected validateRequest(request: CreateProjectRequest): void {
+    // Call base validation
+    super.validateRequest(request);
+
+    // Validate project name
+    this.validateRequiredString(request.name, 'Project name');
+    this.validateStringLength(request.name, 'Project name', 1, 100);
+
+    // Validate description if provided
+    if (request.description) {
+      this.validateStringLength(request.description, 'Project description', undefined, 500);
     }
 
-    if (request.name.length > 100) {
-      throw new Error('Project name must be 100 characters or less');
-    }
-
-    if (request.description && request.description.length > 500) {
-      throw new Error('Project description must be 500 characters or less');
-    }
-
-    if (!request.userId) {
-      throw new Error('User ID is required');
-    }
+    // Validate user ID
+    this.validateRequiredString(request.userId, 'User ID');
 
     // Validate repository configuration
     if (!request.repositoryUrl && !request.repositoryPath) {
@@ -106,33 +107,25 @@ export class CreateProjectUseCase {
     }
 
     // Validate URL format if provided
-    if (request.repositoryUrl && !this.isValidRepositoryUrl(request.repositoryUrl)) {
-      throw new Error('Invalid repository URL format');
+    if (request.repositoryUrl) {
+      this.validateRepositoryUrl(request.repositoryUrl);
     }
 
     // Validate settings
     if (request.settings) {
-      if (request.settings.maxFileSize && request.settings.maxFileSize < 0) {
-        throw new Error('Max file size must be positive');
+      if (request.settings.maxFileSize !== undefined) {
+        this.validateNumber(request.settings.maxFileSize, 'Max file size', 0);
       }
 
-      if (request.settings.syncInterval && request.settings.syncInterval < 60) {
-        throw new Error('Sync interval must be at least 60 seconds');
+      if (request.settings.syncInterval !== undefined) {
+        this.validateNumber(request.settings.syncInterval, 'Sync interval', 60);
       }
 
-      if (request.settings.includePatterns && request.settings.includePatterns.length === 0) {
-        throw new Error('At least one include pattern is required');
+      if (request.settings.includePatterns) {
+        this.validateArray(request.settings.includePatterns, 'Include patterns', 1);
       }
     }
   }
 
-  private isValidRepositoryUrl(url: string): boolean {
-    try {
-      const parsedUrl = new URL(url);
-      return ['http:', 'https:', 'git:'].includes(parsedUrl.protocol);
-    } catch {
-      // Check for SSH format
-      return /^git@[\w.-]+:[\w.-]+\/[\w.-]+\.git$/.test(url);
-    }
-  }
+
 }

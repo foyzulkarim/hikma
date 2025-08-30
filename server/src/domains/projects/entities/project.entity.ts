@@ -1,7 +1,9 @@
 import { JsonValue } from '@prisma/client/runtime/library';
 import { ProjectStatus, MemberRole } from '@prisma/client';
+import { ProjectSlug, ProjectSettings, ProjectSettingsData } from '../value-objects';
 
-export interface ProjectSettings {
+// Legacy interface for backward compatibility
+export interface LegacyProjectSettings {
   repositoryUrl?: string;
   repositoryPath?: string;
   branch?: string;
@@ -49,16 +51,21 @@ export class ProjectEntity {
     return !!(settings.repositoryUrl || settings.repositoryPath);
   }
 
-  public getTypedSettings(): ProjectSettings {
-    return (this.settings as any) || {};
+  public getTypedSettings(): LegacyProjectSettings {
+    return this.settings as LegacyProjectSettings;
+  }
+
+  public getProjectSettings(): ProjectSettings {
+    const legacySettings = this.getTypedSettings();
+    return ProjectSettings.create(legacySettings);
   }
 
   public getRepositoryInfo(): { url?: string; path?: string; branch?: string } {
-    const settings = this.getTypedSettings();
+    const projectSettings = this.getProjectSettings();
     return {
-      url: settings.repositoryUrl,
-      path: settings.repositoryPath,
-      branch: settings.branch || 'main'
+      url: projectSettings.repositoryUrl?.value,
+      path: projectSettings.repositoryPath,
+      branch: projectSettings.branch
     };
   }
 
@@ -89,7 +96,7 @@ export class ProjectEntity {
     slug: string;
     description?: string | null;
     userId: string;
-    settings?: ProjectSettings;
+    settings?: LegacyProjectSettings;
   }): {
     name: string;
     slug: string;
@@ -109,7 +116,7 @@ export class ProjectEntity {
   public update(data: {
     name?: string;
     description?: string | null;
-    settings?: ProjectSettings;
+    settings?: LegacyProjectSettings;
     status?: ProjectStatus;
   }): Partial<ProjectEntity> {
     const updates: any = {};
@@ -126,33 +133,19 @@ export class ProjectEntity {
 
   // Validation methods
   public validateSettings(): { isValid: boolean; errors: string[] } {
-    const settings = this.getTypedSettings();
-    const errors: string[] = [];
-
-    if (settings.repositoryUrl && !this.isValidUrl(settings.repositoryUrl)) {
-      errors.push('Invalid repository URL format');
-    }
-
-    if (settings.maxFileSize && settings.maxFileSize < 0) {
-      errors.push('Max file size must be positive');
-    }
-
-    if (settings.syncInterval && settings.syncInterval < 60) {
-      errors.push('Sync interval must be at least 60 seconds');
-    }
-
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
-  }
-
-  private isValidUrl(url: string): boolean {
     try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
+      const legacySettings = this.getTypedSettings();
+      // Validate using the new ProjectSettings value object
+      ProjectSettings.create(legacySettings);
+      return {
+        isValid: true,
+        errors: []
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        errors: [error instanceof Error ? error.message : 'Invalid settings']
+      };
     }
   }
 
@@ -163,7 +156,7 @@ export class ProjectEntity {
     description: string | null;
     repositoryUrl?: string;
     repositoryPath?: string;
-    settings: ProjectSettings;
+    settings: LegacyProjectSettings;
     status: string;
     createdAt: string;
     updatedAt: string;

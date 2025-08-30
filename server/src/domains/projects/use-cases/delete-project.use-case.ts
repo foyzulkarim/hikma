@@ -1,14 +1,12 @@
 import { ProjectService } from '../services/project.service';
+import { BaseUseCase, BaseRequest, BaseResponse } from './base.use-case';
 
-export interface DeleteProjectRequest {
+export interface DeleteProjectRequest extends BaseRequest {
   projectId: string;
-  userId: string;
   confirmation?: string; // Optional confirmation string
 }
 
-export interface DeleteProjectResponse {
-  success: boolean;
-  message: string;
+export interface DeleteProjectResponse extends BaseResponse {
   deletedProject?: {
     id: string;
     name: string;
@@ -16,8 +14,10 @@ export interface DeleteProjectResponse {
   };
 }
 
-export class DeleteProjectUseCase {
-  constructor(private projectService: ProjectService) {}
+export class DeleteProjectUseCase extends BaseUseCase<DeleteProjectRequest, DeleteProjectResponse> {
+  constructor(private projectService: ProjectService) {
+    super();
+  }
 
   async execute(request: DeleteProjectRequest): Promise<DeleteProjectResponse> {
     // Validate input
@@ -65,14 +65,15 @@ export class DeleteProjectUseCase {
     }
   }
 
-  private validateRequest(request: DeleteProjectRequest): void {
-    if (!request.projectId) {
-      throw new Error('Project ID is required');
-    }
+  protected validateRequest(request: DeleteProjectRequest): void {
+    // Call base validation
+    super.validateRequest(request);
 
-    if (!request.userId) {
-      throw new Error('User ID is required');
-    }
+    // Validate project ID
+    this.validateRequiredString(request.projectId, 'Project ID');
+
+    // Validate user ID
+    this.validateRequiredString(request.userId, 'User ID');
 
     // Validate UUID format for projectId
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

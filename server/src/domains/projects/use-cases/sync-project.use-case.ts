@@ -1,14 +1,14 @@
-import { ProjectService, ProjectSyncResult } from '../services/project.service';
+import { ProjectService } from '../services/project.service';
+import { ProjectSyncService, ProjectSyncResult } from '../services/project-sync.service';
+import { BaseUseCase, BaseRequest, BaseResponse } from './base.use-case';
 
-export interface SyncProjectRequest {
+export interface SyncProjectRequest extends BaseRequest {
   projectId: string;
-  userId: string;
   force?: boolean; // Force sync even if recently synced
 }
 
-export interface SyncProjectResponse {
+export interface SyncProjectResponse extends BaseResponse {
   status: 'success' | 'error' | 'in_progress';
-  message: string;
   syncId?: string;
   project?: {
     id: string;
@@ -17,8 +17,13 @@ export interface SyncProjectResponse {
   };
 }
 
-export class SyncProjectUseCase {
-  constructor(private projectService: ProjectService) {}
+export class SyncProjectUseCase extends BaseUseCase<SyncProjectRequest, SyncProjectResponse> {
+  constructor(
+    private projectService: ProjectService,
+    private syncService: ProjectSyncService
+  ) {
+    super();
+  }
 
   async execute(request: SyncProjectRequest): Promise<SyncProjectResponse> {
     // Validate input
@@ -45,7 +50,7 @@ export class SyncProjectUseCase {
       }
 
       // Perform sync
-      const syncResult = await this.projectService.syncProject(request.projectId, request.userId);
+      const syncResult = await this.syncService.syncProject(request.projectId, request.userId);
 
       return {
         status: syncResult.status,
@@ -65,14 +70,15 @@ export class SyncProjectUseCase {
     }
   }
 
-  private validateRequest(request: SyncProjectRequest): void {
-    if (!request.projectId) {
-      throw new Error('Project ID is required');
-    }
+  protected validateRequest(request: SyncProjectRequest): void {
+    // Call base validation
+    super.validateRequest(request);
 
-    if (!request.userId) {
-      throw new Error('User ID is required');
-    }
+    // Validate project ID
+    this.validateRequiredString(request.projectId, 'Project ID');
+
+    // Validate user ID
+    this.validateRequiredString(request.userId, 'User ID');
 
     // Validate UUID format for projectId
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

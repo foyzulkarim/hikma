@@ -47,19 +47,10 @@ export interface IProjectRepository {
   count(userId?: string): Promise<number>;
   exists(id: string, userId?: string): Promise<boolean>;
 
-  // Member operations
-  addMember(projectId: string, userId: string, role: string): Promise<void>;
-  removeMember(projectId: string, userId: string): Promise<void>;
-  updateMemberRole(projectId: string, userId: string, role: string): Promise<void>;
-  getMembers(projectId: string): Promise<Array<{
-    id: string;
-    userId: string;
-    role: string;
-    createdAt: Date;
-  }>>;
-
   // Validation operations
   isSlugAvailable(slug: string, excludeId?: string): Promise<boolean>;
+  
+  // Access control
   canUserAccess(projectId: string, userId: string): Promise<boolean>;
   canUserModify(projectId: string, userId: string): Promise<boolean>;
 }

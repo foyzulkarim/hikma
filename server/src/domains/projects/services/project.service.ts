@@ -1,13 +1,8 @@
 import { ProjectEntity } from '../entities/project.entity';
 import { IProjectRepository, CreateProjectData, UpdateProjectData, FindProjectsOptions } from '../repositories/project.repository.interface';
+import { ProjectSlug } from '../value-objects';
 import { eventBus } from '@/shared/events/event-bus';
-
-export interface ProjectSyncResult {
-  status: 'success' | 'error' | 'in_progress';
-  message: string;
-  syncId?: string;
-  documentsProcessed?: number;
-}
+import { PROJECT_EVENTS, ProjectCreatedEvent, ProjectUpdatedEvent, ProjectDeletedEvent } from '../events/project.events';
 
 export class ProjectService {
   constructor(private projectRepository: IProjectRepository) {}
@@ -27,16 +22,21 @@ export class ProjectService {
     // Create project
     const project = await this.projectRepository.create(data);
 
-    // Emit event
-    eventBus.emit('project-created', {
+    // Emit domain event
+    const repositoryInfo = project.getRepositoryInfo();
+    const event: ProjectCreatedEvent = {
       projectId: project.id,
       userId: data.userId,
+      projectName: project.name,
+      slug: project.slug,
+      repositoryUrl: repositoryInfo.url,
       timestamp: new Date().toISOString(),
-      projectData: {
-        name: project.name,
-        slug: project.slug
+      metadata: {
+        source: 'api',
+        settings: project.getTypedSettings()
       }
-    });
+    };
+    eventBus.emit(PROJECT_EVENTS.PROJECT_CREATED, event);
 
     return project;
   }
@@ -77,13 +77,31 @@ export class ProjectService {
 
     const updatedProject = await this.projectRepository.update(id, data, userId);
 
-    // Emit event
-    eventBus.emit('project-updated', {
+    // Emit domain event
+    const changes: any = {};
+    if (data.name && data.name !== existingProject.name) {
+      changes.name = { old: existingProject.name, new: data.name };
+    }
+    if (data.description !== undefined && data.description !== existingProject.description) {
+      changes.description = { old: existingProject.description, new: data.description };
+    }
+    if (data.status && data.status !== existingProject.status) {
+      changes.status = { old: existingProject.status, new: data.status };
+    }
+    if (data.settings) {
+      changes.settings = { old: existingProject.getTypedSettings(), new: data.settings };
+    }
+
+    const event: ProjectUpdatedEvent = {
       projectId: id,
       userId,
+      changes,
       timestamp: new Date().toISOString(),
-      changes: data
-    });
+      metadata: {
+        source: 'api'
+      }
+    };
+    eventBus.emit(PROJECT_EVENTS.PROJECT_UPDATED, event);
 
     return updatedProject;
   }
@@ -101,123 +119,27 @@ export class ProjectService {
 
     await this.projectRepository.delete(id, userId);
 
-    // Emit event
-    eventBus.emit('project-deleted', {
+    // Emit domain event
+    const event: ProjectDeletedEvent = {
       projectId: id,
       userId,
+      projectName: project.name,
+      slug: project.slug,
       timestamp: new Date().toISOString(),
-      projectData: {
-        name: project.name,
-        slug: project.slug
+      metadata: {
+        memberCount: project.members?.length || 0,
+        reason: 'user_requested'
       }
-    });
+    };
+    eventBus.emit(PROJECT_EVENTS.PROJECT_DELETED, event);
   }
 
   async getUserProjects(userId: string, options?: FindProjectsOptions) {
     return this.projectRepository.findByUserId(userId, options);
   }
 
-  async syncProject(id: string, userId: string): Promise<ProjectSyncResult> {
-    // Verify project exists and user has access
-    const project = await this.projectRepository.findById(id, userId);
-    if (!project) {
-      throw new Error('Project not found or access denied');
-    }
-
-    // Check if project can be synced
-    if (!project.canSync()) {
-      return {
-        status: 'error',
-        message: 'Project cannot be synced. Check project status and repository configuration.'
-      };
-    }
-
-    // Generate sync ID
-    const syncId = `sync_${id}_${Date.now()}`;
-
-    // Emit sync started event
-    eventBus.emit('sync-job-started', {
-      jobId: syncId,
-      projectId: id,
-      userId,
-      timestamp: new Date().toISOString(),
-      repositoryInfo: project.getRepositoryInfo()
-    });
-
-    // Return immediate response (actual sync happens asynchronously)
-    return {
-      status: 'in_progress',
-      message: 'Project sync started successfully',
-      syncId
-    };
-  }
-
-  async addProjectMember(projectId: string, userId: string, targetUserId: string, role: string): Promise<void> {
-    // Verify user can modify project
-    const canModify = await this.projectRepository.canUserModify(projectId, userId);
-    if (!canModify) {
-      throw new Error('User does not have permission to add members to this project');
-    }
-
-    // Validate role
-    const validRoles = ['MEMBER', 'ADMIN', 'OWNER'];
-    if (!validRoles.includes(role)) {
-      throw new Error('Invalid role specified');
-    }
-
-    await this.projectRepository.addMember(projectId, targetUserId, role);
-
-    // Emit event
-    eventBus.emit('project-member-added', {
-      projectId,
-      userId,
-      targetUserId,
-      role,
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  async removeProjectMember(projectId: string, userId: string, targetUserId: string): Promise<void> {
-    // Verify user can modify project
-    const canModify = await this.projectRepository.canUserModify(projectId, userId);
-    if (!canModify) {
-      throw new Error('User does not have permission to remove members from this project');
-    }
-
-    // Don't allow removing the last owner
-    const members = await this.projectRepository.getMembers(projectId);
-    const owners = members.filter(m => m.role === 'OWNER');
-    const targetMember = members.find(m => m.userId === targetUserId);
-
-    if (targetMember?.role === 'OWNER' && owners.length === 1) {
-      throw new Error('Cannot remove the last owner from the project');
-    }
-
-    await this.projectRepository.removeMember(projectId, targetUserId);
-
-    // Emit event
-    eventBus.emit('project-member-removed', {
-      projectId,
-      userId,
-      targetUserId,
-      timestamp: new Date().toISOString()
-    });
-  }
-
-  async getProjectMembers(projectId: string, userId: string) {
-    // Verify user has access to project
-    const hasAccess = await this.projectRepository.canUserAccess(projectId, userId);
-    if (!hasAccess) {
-      throw new Error('Access denied to project');
-    }
-
-    return this.projectRepository.getMembers(projectId);
-  }
-
   private isValidSlug(slug: string): boolean {
-    // Slug should be lowercase, alphanumeric with hyphens, 3-50 characters
-    const slugRegex = /^[a-z0-9-]{3,50}$/;
-    return slugRegex.test(slug) && !slug.startsWith('-') && !slug.endsWith('-');
+    return ProjectSlug.isValid(slug);
   }
 
   // Utility methods

@@ -68,13 +68,8 @@ async function setupTestRedis() {
 
 async function setupTestVectorStore() {
   try {
-    // Use test Pinecone index or mock
-    if (process.env.PINECONE_API_KEY && process.env.TEST_PINECONE_INDEX) {
-      process.env.PINECONE_INDEX_NAME = process.env.TEST_PINECONE_INDEX;
-    } else {
-      // Use mock vector store for tests
-      process.env.USE_MOCK_VECTOR_STORE = 'true';
-    }
+    // Use mock vector store for tests (Pinecone no longer used)
+    process.env.USE_MOCK_VECTOR_STORE = 'true';
     
     logger.info('Test vector store setup completed');
   } catch (error) {

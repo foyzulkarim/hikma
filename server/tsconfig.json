@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "allowJs": true,
@@ -11,20 +11,21 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": false,
+    "noEmit": true,
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
+      "@/*": ["./src/*", "./config/*"],
       "@tests/*": ["./tests/*"]
     },
     "types": ["node", "vitest/globals"],
     "lib": ["ES2022"]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "config/**/*"
   ],
   "exclude": [
     "node_modules",

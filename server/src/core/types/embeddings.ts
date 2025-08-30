@@ -7,7 +7,6 @@ export enum EmbeddingModel {
 
 // Vector store types
 export enum VectorStoreType {
-  PINECONE = 'PINECONE',
   CHROMA = 'CHROMA',
   WEAVIATE = 'WEAVIATE',
   QDRANT = 'QDRANT',
@@ -359,32 +358,4 @@ export interface HybridSearchQuery {
   };
   options?: VectorSearchOptions;
 }
-
-// Export all types
-export type {
-  EmbeddingConfig,
-  VectorStoreConfig,
-  DocumentChunk,
-  ChunkMetadata,
-  VectorRecord,
-  VectorMetadata,
-  EmbeddingRequest,
-  EmbeddingResponse,
-  VectorSearchQuery,
-  VectorFilter,
-  VectorSearchResult,
-  VectorSearchResponse,
-  ChunkingConfig,
-  ChunkingResult,
-  VectorOperationRequest,
-  VectorOperationResponse,
-  VectorOperationError,
-  VectorStoreStats,
-  IEmbeddingService,
-  IVectorStore,
-  IDocumentProcessor,
-  IVectorSearchService,
-  VectorSearchOptions,
-  HybridSearchQuery,
-};
 

@@ -64,8 +64,10 @@ export const appConfig = {
   external: {
     github: {
       token: process.env.GITHUB_TOKEN || '',
-      cliPath: process.env.GITHUB_CLI_PATH || '/usr/bin/gh',
+      cliPath: process.env.GITHUB_CLI_PATH || 'gh',
       apiUrl: process.env.GITHUB_API_URL || 'https://api.github.com',
+      enableTempCloning: process.env.GITHUB_ENABLE_TEMP_CLONING === 'true',
+      tempCloneTimeout: parseInt(process.env.GITHUB_TEMP_CLONE_TIMEOUT || '300000', 10), // 5 minutes
     },
     jira: {
       url: process.env.JIRA_URL || '',
@@ -116,6 +118,15 @@ export const appConfig = {
     logSqlQueries: process.env.DEV_LOG_SQL_QUERIES === 'true',
     enableDebugRoutes: process.env.DEV_ENABLE_DEBUG_ROUTES === 'true',
     hotReload: process.env.DEV_HOT_RELOAD === 'true',
+  },
+
+  // Temporary Directory Configuration
+  tempDirectory: {
+    basePath: process.env.TEMP_DIR_BASE_PATH || '/tmp/hikma',
+    maxAge: parseInt(process.env.TEMP_DIR_MAX_AGE || '3600000', 10), // 1 hour
+    cleanupInterval: parseInt(process.env.TEMP_DIR_CLEANUP_INTERVAL || '1800000', 10), // 30 minutes
+    maxSize: parseInt(process.env.TEMP_DIR_MAX_SIZE || '1073741824', 10), // 1GB
+    enableAutoCleanup: process.env.TEMP_DIR_ENABLE_AUTO_CLEANUP !== 'false',
   },
 
   // LLM Configuration

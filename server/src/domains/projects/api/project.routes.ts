@@ -151,7 +151,7 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       params: {
         type: 'object',
         properties: {
-          projectId: { type: 'string', format: 'uuid' }
+          projectId: { type: 'string' }
         },
         required: ['projectId']
       },

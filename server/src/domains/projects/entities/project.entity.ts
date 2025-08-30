@@ -13,6 +13,9 @@ export interface LegacyProjectSettings {
   enableAutoSync?: boolean;
   syncInterval?: number;
   followSymlinks?: boolean;
+  // New properties for URL-only repositories
+  isUrlOnlyRepository?: boolean;
+  enableTemporaryCloning?: boolean;
 }
 
 export interface ProjectMember {
@@ -51,6 +54,25 @@ export class ProjectEntity {
     return !!(settings.repositoryUrl || settings.repositoryPath);
   }
 
+  public isUrlOnlyRepository(): boolean {
+    const settings = this.getTypedSettings();
+    return !!(settings.repositoryUrl && !settings.repositoryPath && settings.isUrlOnlyRepository);
+  }
+
+  public requiresTemporaryCloning(): boolean {
+    const settings = this.getTypedSettings();
+    return this.isUrlOnlyRepository() && (settings.enableTemporaryCloning ?? true);
+  }
+
+  public canUseGitHubCli(): boolean {
+    const settings = this.getTypedSettings();
+    if (!settings.repositoryUrl) return false;
+    
+    // Check if it's a GitHub URL
+    const url = settings.repositoryUrl.toLowerCase();
+    return url.includes('github.com') || url.includes('github.enterprise');
+  }
+
   public getTypedSettings(): LegacyProjectSettings {
     return this.settings as LegacyProjectSettings;
   }
@@ -60,12 +82,22 @@ export class ProjectEntity {
     return ProjectSettings.create(legacySettings);
   }
 
-  public getRepositoryInfo(): { url?: string; path?: string; branch?: string } {
+  public getRepositoryInfo(): { 
+    url?: string; 
+    path?: string; 
+    branch?: string;
+    isUrlOnly?: boolean;
+    requiresTempCloning?: boolean;
+    canUseGitHubCli?: boolean;
+  } {
     const projectSettings = this.getProjectSettings();
     return {
       url: projectSettings.repositoryUrl?.value,
       path: projectSettings.repositoryPath,
-      branch: projectSettings.branch
+      branch: projectSettings.branch,
+      isUrlOnly: this.isUrlOnlyRepository(),
+      requiresTempCloning: this.requiresTemporaryCloning(),
+      canUseGitHubCli: this.canUseGitHubCli()
     };
   }
 
@@ -135,11 +167,32 @@ export class ProjectEntity {
   public validateSettings(): { isValid: boolean; errors: string[] } {
     try {
       const legacySettings = this.getTypedSettings();
+      const errors: string[] = [];
+      
       // Validate using the new ProjectSettings value object
       ProjectSettings.create(legacySettings);
+      
+      // Additional validation for URL-only repositories
+      if (legacySettings.isUrlOnlyRepository) {
+        if (!legacySettings.repositoryUrl) {
+          errors.push('Repository URL is required for URL-only repositories');
+        }
+        if (legacySettings.repositoryPath) {
+          errors.push('Repository path should not be set for URL-only repositories');
+        }
+      }
+      
+      // Validate GitHub CLI compatibility
+      if (legacySettings.enableTemporaryCloning && legacySettings.repositoryUrl) {
+        const url = legacySettings.repositoryUrl.toLowerCase();
+        if (!url.includes('github.com') && !url.includes('github.enterprise')) {
+          errors.push('Temporary cloning is currently only supported for GitHub repositories');
+        }
+      }
+      
       return {
-        isValid: true,
-        errors: []
+        isValid: errors.length === 0,
+        errors
       };
     } catch (error) {
       return {
@@ -160,6 +213,9 @@ export class ProjectEntity {
     status: string;
     createdAt: string;
     updatedAt: string;
+    isUrlOnlyRepository?: boolean;
+    requiresTemporaryCloning?: boolean;
+    canUseGitHubCli?: boolean;
   } {
     const settings = this.getTypedSettings();
     
@@ -172,7 +228,10 @@ export class ProjectEntity {
       settings,
       status: this.status,
       createdAt: this.createdAt.toISOString(),
-      updatedAt: this.updatedAt.toISOString()
+      updatedAt: this.updatedAt.toISOString(),
+      isUrlOnlyRepository: this.isUrlOnlyRepository(),
+      requiresTemporaryCloning: this.requiresTemporaryCloning(),
+      canUseGitHubCli: this.canUseGitHubCli()
     };
   }
 }

@@ -2,6 +2,13 @@ import { eventBus } from '@/shared/events/event-bus';
 import { PROJECT_EVENTS, ProjectSyncStartedEvent, ProjectSyncCompletedEvent } from '../events/project.events';
 import { logger } from '@/core/utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+import { IProjectRepository } from '../repositories/project.repository.interface';
+import { GitService, PullOptions } from '@/shared/services/git.service';
+import { TempDirectoryManager } from '@/shared/utils/temp-directory.util';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { PrismaClient } from '@prisma/client';
+import { ProjectRepository } from '../repositories/project.repository';
 
 /**
  * Service responsible for handling project domain events
@@ -9,8 +16,12 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export class ProjectEventHandlersService {
   private initialized = false;
+  private gitService: GitService;
+  private tempManager: TempDirectoryManager;
 
-  constructor() {
+  constructor(private projectRepository: IProjectRepository) {
+    this.gitService = new GitService();
+    this.tempManager = TempDirectoryManager.getInstance();
     this.setupEventListeners();
   }
 
@@ -282,12 +293,155 @@ export class ProjectEventHandlersService {
       action: 'sync_started_processing'
     });
 
-    // TODO: Add business logic here
-    // Examples:
-    // - Update project status to 'syncing'
-    // - Send notifications to project members
-    // - Initialize monitoring/metrics collection
-    // - Prepare resources for sync operation
+    try {
+      // Get project details
+       const project = await this.projectRepository.findById(event.projectId);
+       if (!project) {
+         throw new Error(`Project not found: ${event.projectId}`);
+       }
+
+       // Check if repository URL is available
+       if (!event.repositoryUrl) {
+         throw new Error(`Repository URL not available for project: ${event.projectId}`);
+       }
+
+       // Check if repository already exists from previous sync
+       let tempDir: string;
+       let isExistingRepo = false;
+       
+       // Check if project has existing temp path with valid git repository
+        const syncInfo = project.getSyncInfo();
+        if (syncInfo?.tempPath) {
+          try {
+            const gitDir = path.join(syncInfo.tempPath, '.git');
+            const gitDirExists = await fs.access(gitDir).then(() => true).catch(() => false);
+            
+            if (gitDirExists) {
+              tempDir = syncInfo.tempPath;
+              isExistingRepo = true;
+              logger.info('Valid temporary clone already exists, performing git pull', {
+                correlationId,
+                projectId: project.id,
+                tempPath: tempDir
+              });
+           } else {
+             // Directory exists but no .git, create new temp directory
+             tempDir = await this.tempManager.createTempDirectory({
+               prefix: `project-${project.id}`,
+               autoCleanup: false
+             });
+           }
+         } catch (error) {
+           // Error accessing existing path, create new temp directory
+           tempDir = await this.tempManager.createTempDirectory({
+             prefix: `project-${project.id}`,
+             autoCleanup: false
+           });
+         }
+       } else {
+         // No existing temp path, create new one
+         tempDir = await this.tempManager.createTempDirectory({
+           prefix: `project-${project.id}`,
+           autoCleanup: false
+         });
+       }
+       
+       // Perform git operation based on repository state
+       if (isExistingRepo) {
+         // Repository already exists, perform git pull
+         await this.gitService.pullRepository({
+           repositoryPath: tempDir,
+           branch: event.branch
+         }, correlationId);
+         
+         logger.info('Repository updated successfully via git pull', {
+           correlationId,
+           projectId: project.id,
+           tempPath: tempDir
+         });
+       } else {
+         // Repository doesn't exist, perform git clone
+         await this.gitService.cloneRepository({
+           repositoryUrl: event.repositoryUrl,
+           targetDirectory: tempDir,
+           branch: event.branch,
+           depth: 1
+         }, correlationId);
+         
+         logger.info('Repository cloned successfully', {
+           correlationId,
+           projectId: project.id,
+           tempPath: tempDir
+         });
+       }
+
+      // Update sync status to completed
+        await this.projectRepository.updateSyncStatus(project.id, {
+          syncStatus: 'completed',
+          lastSyncAt: new Date().toISOString(),
+          tempPath: tempDir
+        });
+
+      // Emit sync completed event
+      eventBus.emit(PROJECT_EVENTS.PROJECT_SYNC_COMPLETED, {
+        projectId: project.id,
+        userId: event.userId,
+        syncId: event.syncId,
+        status: 'success',
+        documentsProcessed: 0, // TODO: Count actual documents
+        documentsAdded: 0,
+        documentsUpdated: 0,
+        documentsDeleted: 0,
+        duration: Date.now() - new Date(event.timestamp).getTime(),
+        timestamp: new Date().toISOString(),
+        metadata: {
+          tempClonePath: tempDir,
+          repositoryInfo: {
+            url: event.repositoryUrl,
+            branch: event.branch
+          }
+        }
+      });
+
+      logger.info(`Sync completed successfully for project: ${project.id}`, {
+        correlationId,
+        projectId: project.id,
+        syncId: event.syncId,
+        tempClonePath: tempDir
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`Sync failed for project: ${event.projectId}`, {
+        correlationId,
+        projectId: event.projectId,
+        syncId: event.syncId,
+        error: errorMessage
+      });
+      
+      // Update sync status to failed
+        await this.projectRepository.updateSyncStatus(event.projectId, {
+          syncStatus: 'failed',
+          lastSyncAt: new Date().toISOString(),
+          errorMessage: errorMessage
+        });
+
+      // Emit sync completed event with failed status
+      eventBus.emit(PROJECT_EVENTS.PROJECT_SYNC_COMPLETED, {
+        projectId: event.projectId,
+        userId: event.userId,
+        syncId: event.syncId,
+        status: 'failed',
+        documentsProcessed: 0,
+        documentsAdded: 0,
+        documentsUpdated: 0,
+        documentsDeleted: 0,
+        duration: Date.now() - new Date(event.timestamp).getTime(),
+        timestamp: new Date().toISOString(),
+        metadata: {
+          errors: [errorMessage]
+        }
+      });
+    }
   }
 
   /**
@@ -302,13 +456,32 @@ export class ProjectEventHandlersService {
       action: 'sync_completed_processing'
     });
 
-    // TODO: Add business logic here
-    // Examples:
-    // - Update project status based on sync result
-    // - Send completion notifications
-    // - Update project metrics/statistics
-    // - Cleanup temporary resources
-    // - Trigger follow-up processes (indexing, analysis, etc.)
+    try {
+      // Log successful completion
+      logger.info(`Sync completed successfully for project: ${event.projectId}`, {
+        correlationId,
+        projectId: event.projectId,
+        syncId: event.syncId,
+        status: event.status,
+        documentsProcessed: event.documentsProcessed,
+        duration: event.duration
+      });
+
+      // Additional completion processing can be added here
+      // Examples:
+      // - Send notifications to project members
+      // - Update analytics/metrics
+      // - Trigger downstream processes
+      // - Clean up temporary resources if needed
+      
+    } catch (error) {
+      logger.error(`Error processing sync completion for project: ${event.projectId}`, {
+        correlationId,
+        projectId: event.projectId,
+        syncId: event.syncId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
 
   /**
@@ -345,4 +518,8 @@ export class ProjectEventHandlersService {
 }
 
 // Export singleton instance
-export const projectEventHandlers = new ProjectEventHandlersService();
+// Create dependencies for the singleton instance
+const prisma = new PrismaClient();
+const projectRepository = new ProjectRepository(prisma);
+
+export const projectEventHandlers = new ProjectEventHandlersService(projectRepository);

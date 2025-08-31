@@ -11,12 +11,8 @@ curl -X 'POST' \
 }'
 ```
 
-## How to sync project (with ID: cmey2a0t300013y88wnmwov1y)
+## How to sync project (with ID: cmez632ld000211bepggjjzwn)
 
 ```
-curl -X 'POST' \
-  'http://localhost:4000/api/v1/projects/cmey2a0t300013y88wnmwov1y/sync' \
-  -H 'accept: application/json' \
-  -H 'Authorization: Bearer <token>' \
-  -d ''
+curl -X 'POST' 'http://localhost:4000/api/v1/projects/cmez632ld000211bepggjjzwn/sync' -H 'accept: application/json' -H 'Content-Type: application/json' -H 'Authorization: Bearer eyJhbGci...' -d '{}'
 ```

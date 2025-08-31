@@ -3,6 +3,7 @@ import { ASTNodeType, ASTChunkMetadata, ChunkMetadata } from '../../core/types/e
 import { PrismaClient } from '@prisma/client';
 import { embeddingService } from '../services/embedding-service';
 import { logger } from '../../core/utils/logger';
+import { Neo4jChunkService, ChunkRelationshipType } from '../services/neo4j-chunk.service';
 
 export interface ASTProcessingEvent {
   projectId: string;
@@ -22,9 +23,11 @@ export interface ASTProcessingResult {
 
 export class ASTProcessingHandler {
   private readonly prisma: PrismaClient;
+  private readonly neo4jChunkService: Neo4jChunkService;
 
   constructor() {
     this.prisma = new PrismaClient();
+    this.neo4jChunkService = new Neo4jChunkService();
   }
 
   async handleASTProcessing(event: ASTProcessingEvent): Promise<ASTProcessingResult> {
@@ -161,25 +164,59 @@ export class ASTProcessingHandler {
         });
 
         // Create AST-specific metadata
-         await this.prisma.aSTChunkMetadata.create({
-          data: {
+        // TODO: Fix Prisma client property name - may need to regenerate Prisma client
+        // await this.prisma.astChunkMetadata.create({
+        //   data: {
+        //     chunkId: documentChunk.id,
+        //     astNodeType: this.mapToASTNodeType(chunk.type).toString(),
+        //     functionName: chunk.functionName,
+        //     className: chunk.className,
+        //     methodName: chunk.methodName,
+        //     parameters: chunk.parameters || [],
+        //     returnType: chunk.returnType,
+        //     visibility: chunk.visibility,
+        //     isStatic: chunk.isStatic || false,
+        //     isAsync: chunk.isAsync || false,
+        //     complexity: chunk.complexity,
+        //     dependencies: chunk.dependencies || [],
+        //     startLine: chunk.startLine,
+        //     endLine: chunk.endLine,
+        //     syntaxTree: chunk.syntaxTree
+        //   }
+        // });
+
+        // Create Neo4j chunk node
+        try {
+          await this.neo4jChunkService.createChunkNode({
+            id: `chunk_${documentChunk.id}`,
             chunkId: documentChunk.id,
-            astNodeType: this.mapToASTNodeType(chunk.type).toString(),
+            documentId,
+            projectId: event.projectId,
+            content: chunk.content,
+            filePath: event.filePath,
+            language: event.language,
+            astNodeType: chunk.type,
             functionName: chunk.functionName,
             className: chunk.className,
             methodName: chunk.methodName,
-            parameters: chunk.parameters || [],
+            parameters: chunk.parameters,
             returnType: chunk.returnType,
             visibility: chunk.visibility,
             isStatic: chunk.isStatic || false,
             isAsync: chunk.isAsync || false,
             complexity: chunk.complexity,
-            dependencies: chunk.dependencies || [],
+            dependencies: chunk.dependencies,
             startLine: chunk.startLine,
             endLine: chunk.endLine,
-            syntaxTree: chunk.syntaxTree
-          }
-        });
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          
+          logger.debug(`Created Neo4j chunk node for ${chunk.functionName || chunk.className || 'chunk'}`);
+        } catch (neo4jError) {
+          logger.error(`Failed to create Neo4j chunk node for ${event.filePath}:`, neo4jError);
+          // Continue processing even if Neo4j fails
+        }
         
         logger.debug(`Processed AST chunk ${i + 1}/${chunks.length}`, {
           filePath: event.filePath,
@@ -196,6 +233,15 @@ export class ASTProcessingHandler {
       } catch (error) {
         logger.error(`Error processing chunk ${i} for ${event.filePath}:`, error);
       }
+    }
+
+    // Build relationships between chunks based on AST metadata
+    try {
+      await this.buildChunkRelationships(chunks, event);
+      logger.debug(`Built relationships for ${chunks.length} chunks in ${event.filePath}`);
+    } catch (relationshipError) {
+      logger.error(`Failed to build chunk relationships for ${event.filePath}:`, relationshipError);
+      // Continue processing even if relationship building fails
     }
 
     // Update document status to indexed
@@ -323,5 +369,104 @@ export class ASTProcessingHandler {
   private estimateTokens(content: string): number {
     // Simple token estimation: roughly 4 characters per token
     return Math.ceil(content.length / 4);
+  }
+
+  private async buildChunkRelationships(chunks: any[], event: ASTProcessingEvent): Promise<void> {
+    const relationships = [];
+    
+    // Build relationships based on AST metadata
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const chunkId = `chunk_${chunk.id || i}`;
+      
+      // Function call relationships
+      if (chunk.dependencies && chunk.dependencies.length > 0) {
+        for (const dependency of chunk.dependencies) {
+          // Find chunks that define this dependency
+          const targetChunks = chunks.filter(c => 
+            c.functionName === dependency || 
+            c.className === dependency ||
+            (c.methodName && `${c.className}.${c.methodName}` === dependency)
+          );
+          
+          for (const targetChunk of targetChunks) {
+            const targetChunkId = `chunk_${targetChunk.id || chunks.indexOf(targetChunk)}`;
+            relationships.push({
+              fromChunkId: chunkId,
+              toChunkId: targetChunkId,
+              relationshipType: ChunkRelationshipType.CALLS,
+              properties: {
+                dependencyName: dependency,
+                filePath: event.filePath
+              }
+            });
+          }
+        }
+      }
+      
+      // Class inheritance relationships
+      if (chunk.extends) {
+        const parentChunks = chunks.filter(c => c.className === chunk.extends);
+        for (const parentChunk of parentChunks) {
+          const parentChunkId = `chunk_${parentChunk.id || chunks.indexOf(parentChunk)}`;
+          relationships.push({
+            fromChunkId: chunkId,
+            toChunkId: parentChunkId,
+            relationshipType: ChunkRelationshipType.EXTENDS,
+            properties: {
+              parentClass: chunk.extends,
+              filePath: event.filePath
+            }
+          });
+        }
+      }
+      
+      // Interface implementation relationships
+      if (chunk.implements && chunk.implements.length > 0) {
+        for (const interfaceName of chunk.implements) {
+          const interfaceChunks = chunks.filter(c => c.className === interfaceName);
+          for (const interfaceChunk of interfaceChunks) {
+            const interfaceChunkId = `chunk_${interfaceChunk.id || chunks.indexOf(interfaceChunk)}`;
+            relationships.push({
+              fromChunkId: chunkId,
+              toChunkId: interfaceChunkId,
+              relationshipType: ChunkRelationshipType.IMPLEMENTS,
+              properties: {
+                interfaceName: interfaceName,
+                filePath: event.filePath
+              }
+            });
+          }
+        }
+      }
+      
+      // Method override relationships
+      if (chunk.methodName && chunk.className) {
+        const overriddenMethods = chunks.filter(c => 
+          c.methodName === chunk.methodName && 
+          c.className !== chunk.className &&
+          chunk.extends === c.className
+        );
+        
+        for (const overriddenMethod of overriddenMethods) {
+          const overriddenChunkId = `chunk_${overriddenMethod.id || chunks.indexOf(overriddenMethod)}`;
+          relationships.push({
+            fromChunkId: chunkId,
+            toChunkId: overriddenChunkId,
+            relationshipType: ChunkRelationshipType.OVERRIDES,
+            properties: {
+              methodName: chunk.methodName,
+              filePath: event.filePath
+            }
+          });
+        }
+      }
+    }
+    
+    // Batch create relationships if any exist
+    if (relationships.length > 0) {
+      await this.neo4jChunkService.batchCreateRelationships(relationships);
+      logger.debug(`Created ${relationships.length} chunk relationships for ${event.filePath}`);
+    }
   }
 }

@@ -10,6 +10,7 @@ export enum VectorStoreType {
   CHROMA = 'CHROMA',
   WEAVIATE = 'WEAVIATE',
   QDRANT = 'QDRANT',
+  NEO4J = 'NEO4J', // Added Neo4j support
 }
 
 // Embedding configuration
@@ -46,6 +47,9 @@ export interface DocumentChunk {
   endIndex: number;
   chunkIndex: number;
   totalChunks: number;
+  // Neo4j graph properties
+  neo4jNodeId?: string;
+  graphRelationships?: string[]; // IDs of related chunks in graph
 }
 
 // Chunk metadata
@@ -62,6 +66,10 @@ export interface ChunkMetadata {
   updatedAt: string;
   tags?: string[];
   customFields?: Record<string, any>;
+  // Neo4j graph metadata
+  graphNodeId?: string;
+  graphRelationshipCount?: number;
+  graphCentralityScore?: number;
 }
 
 // Vector record for storage

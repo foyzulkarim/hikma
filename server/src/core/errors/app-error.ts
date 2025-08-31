@@ -186,6 +186,57 @@ export class DatabaseConnectionError extends AppError {
   }
 }
 
+// Neo4j specific errors
+export class Neo4jConnectionError extends AppError {
+  constructor(
+    message = 'Neo4j connection failed',
+    details?: any,
+    correlationId?: string
+  ) {
+    super(message, 500, 'NEO4J_CONNECTION_FAILED', true, details, correlationId);
+  }
+}
+
+export class Neo4jQueryError extends AppError {
+  constructor(
+    message = 'Neo4j query execution failed',
+    details?: any,
+    correlationId?: string
+  ) {
+    super(message, 500, 'NEO4J_QUERY_FAILED', true, details, correlationId);
+  }
+}
+
+export class Neo4jTransactionError extends AppError {
+  constructor(
+    message = 'Neo4j transaction failed',
+    details?: any,
+    correlationId?: string
+  ) {
+    super(message, 500, 'NEO4J_TRANSACTION_FAILED', true, details, correlationId);
+  }
+}
+
+export class Neo4jConstraintError extends AppError {
+  constructor(
+    message = 'Neo4j constraint violation',
+    details?: any,
+    correlationId?: string
+  ) {
+    super(message, 400, 'NEO4J_CONSTRAINT_VIOLATION', true, details, correlationId);
+  }
+}
+
+export class Neo4jSyncError extends AppError {
+  constructor(
+    message = 'Neo4j synchronization failed',
+    details?: any,
+    correlationId?: string
+  ) {
+    super(message, 500, 'NEO4J_SYNC_FAILED', true, details, correlationId);
+  }
+}
+
 // Agent errors
 export class AgentError extends AppError {
   constructor(
@@ -381,6 +432,47 @@ export class ErrorFactory {
   ): InternalServerError {
     return new InternalServerError(message, details, correlationId);
   }
+
+  // Neo4j error factory methods
+  static neo4jConnection(
+    message?: string,
+    details?: any,
+    correlationId?: string
+  ): Neo4jConnectionError {
+    return new Neo4jConnectionError(message, details, correlationId);
+  }
+
+  static neo4jQuery(
+    message?: string,
+    details?: any,
+    correlationId?: string
+  ): Neo4jQueryError {
+    return new Neo4jQueryError(message, details, correlationId);
+  }
+
+  static neo4jTransaction(
+    message?: string,
+    details?: any,
+    correlationId?: string
+  ): Neo4jTransactionError {
+    return new Neo4jTransactionError(message, details, correlationId);
+  }
+
+  static neo4jConstraint(
+    message?: string,
+    details?: any,
+    correlationId?: string
+  ): Neo4jConstraintError {
+    return new Neo4jConstraintError(message, details, correlationId);
+  }
+
+  static neo4jSync(
+    message?: string,
+    details?: any,
+    correlationId?: string
+  ): Neo4jSyncError {
+    return new Neo4jSyncError(message, details, correlationId);
+  }
 }
 
 // Error type guards
@@ -406,5 +498,40 @@ export const isNotFoundError = (error: any): error is NotFoundError => {
 
 export const isRateLimitError = (error: any): error is RateLimitError => {
   return error instanceof RateLimitError;
+};
+
+// Neo4j error type guards
+export const isNeo4jConnectionError = (error: any): error is Neo4jConnectionError => {
+  return error instanceof Neo4jConnectionError;
+};
+
+export const isNeo4jQueryError = (error: any): error is Neo4jQueryError => {
+  return error instanceof Neo4jQueryError;
+};
+
+export const isNeo4jTransactionError = (error: any): error is Neo4jTransactionError => {
+  return error instanceof Neo4jTransactionError;
+};
+
+export const isNeo4jConstraintError = (error: any): error is Neo4jConstraintError => {
+  return error instanceof Neo4jConstraintError;
+};
+
+export const isNeo4jSyncError = (error: any): error is Neo4jSyncError => {
+  return error instanceof Neo4jSyncError;
+};
+
+export const isNeo4jError = (error: any): boolean => {
+  return isNeo4jConnectionError(error) ||
+         isNeo4jQueryError(error) ||
+         isNeo4jTransactionError(error) ||
+         isNeo4jConstraintError(error) ||
+         isNeo4jSyncError(error);
+};
+
+export const isDatabaseError = (error: any): boolean => {
+  return error instanceof DatabaseError ||
+         error instanceof DatabaseConnectionError ||
+         isNeo4jError(error);
 };
 

@@ -1,4 +1,4 @@
-import { ProjectEntity } from '../entities/project.entity';
+import { ProjectEntity, ProjectSyncInfo } from '../entities/project.entity';
 
 export interface FindProjectsOptions {
   limit?: number;
@@ -13,6 +13,7 @@ export interface CreateProjectData {
   description?: string | null;
   slug: string;
   userId: string;
+  repositoryUrl?: string;
   settings?: Record<string, any>;
 }
 
@@ -21,6 +22,7 @@ export interface UpdateProjectData {
   description?: string | null;
   settings?: Record<string, any>;
   status?: string;
+  syncInfo?: Partial<ProjectSyncInfo>;
 }
 
 export interface ProjectListResult {
@@ -43,7 +45,7 @@ export interface IProjectRepository {
 
   // Query operations
   findByUserId(userId: string, options?: FindProjectsOptions): Promise<ProjectListResult>;
-  findAll(options?: FindProjectsOptions): Promise<ProjectListResult>;
+
   count(userId?: string): Promise<number>;
   exists(id: string, userId?: string): Promise<boolean>;
 
@@ -53,4 +55,7 @@ export interface IProjectRepository {
   // Access control
   canUserAccess(projectId: string, userId: string): Promise<boolean>;
   canUserModify(projectId: string, userId: string): Promise<boolean>;
+
+  // Sync status management
+  updateSyncStatus(projectId: string, syncInfo: Partial<ProjectSyncInfo>): Promise<ProjectEntity>;
 }

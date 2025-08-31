@@ -31,7 +31,10 @@ export const projectSettingsSchema = {
     maxFileSize: { type: 'number', minimum: 0 },
     enableAutoSync: { type: 'boolean' },
     syncInterval: { type: 'number', minimum: 60 },
-    followSymlinks: { type: 'boolean' }
+    followSymlinks: { type: 'boolean' },
+    enableTemporaryCloning: { type: 'boolean' },
+    isUrlOnlyRepository: { type: 'boolean' },
+    tempDirectoryPath: { type: 'string' }
   }
 } as const;
 

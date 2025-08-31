@@ -38,7 +38,7 @@ export const projectDetailResponseWrapperSchema = {
 export const projectCreateResponseSchema = {
   type: 'object',
   properties: {
-    project: projectResponseSchema
+    project: projectDetailResponseSchema
   }
 } as const;
 

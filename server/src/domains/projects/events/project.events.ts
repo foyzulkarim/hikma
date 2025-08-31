@@ -65,6 +65,8 @@ export interface ProjectSyncStartedEvent {
   metadata?: {
     force?: boolean;
     lastSyncAt?: string;
+    tempPath?: string;
+    useTemporaryClone?: boolean;
   };
 }
 

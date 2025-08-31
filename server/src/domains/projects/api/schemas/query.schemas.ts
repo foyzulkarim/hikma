@@ -4,7 +4,7 @@
 export const projectIdParamSchema = {
   type: 'object',
   properties: {
-    id: { type: 'string', format: 'uuid' }
+    id: { type: 'string' }
   },
   required: ['id']
 } as const;

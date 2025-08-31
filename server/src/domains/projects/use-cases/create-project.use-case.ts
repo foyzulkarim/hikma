@@ -70,6 +70,7 @@ export class CreateProjectUseCase extends BaseUseCase<CreateProjectRequest, Crea
       description: request.description,
       slug,
       userId: request.userId,
+      repositoryUrl: request.repositoryUrl,
       settings
     });
 

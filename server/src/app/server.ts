@@ -31,6 +31,7 @@ import { routeManager } from './routes/manager';
 import { knowledgeService } from '@/knowledge/services/index';
 import { monitoringOrchestrator } from '@/infrastructure/monitoring/services/monitoring-orchestrator';
 import { eventBus } from '@/shared/events';
+import { ProjectEventHandlersService } from '@/domains/projects/services/project-event-handlers.service';
 
 // Server configuration
 interface ServerConfig {
@@ -294,6 +295,10 @@ async function initializeServices(): Promise<void> {
 
     // Initialize knowledge service
     await knowledgeService.initialize();
+
+    // Initialize project event handlers
+    const projectEventHandlers = new ProjectEventHandlersService();
+    await projectEventHandlers.initialize();
 
     // Initialize agent orchestrator
     // TODO: Implement agent orchestrator

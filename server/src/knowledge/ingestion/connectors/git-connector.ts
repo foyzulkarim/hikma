@@ -18,6 +18,7 @@ import {
 } from '@/core/types/connectors';
 import { logger } from '@/core/utils/logger';
 import { HashUtils } from '@/core/utils/crypto';
+import { TempDirectoryManager } from '@/shared/utils/temp-directory.util';
 
 // Git connector implementation
 export class GitConnector extends BaseConnector {
@@ -28,11 +29,15 @@ export class GitConnector extends BaseConnector {
   private excludePatterns: string[];
   private maxFileSize: number;
   private followSymlinks: boolean;
+  private isTemporaryRepository: boolean;
+  private tempManager: TempDirectoryManager;
 
-  constructor(config: GitConnectorConfig) {
+  constructor(config: GitConnectorConfig, tempPath?: string) {
     super(config);
     
-    this.repositoryPath = config.settings.repositoryPath;
+    // Use temporary path if provided, otherwise use configured path
+    this.repositoryPath = tempPath || config.settings.repositoryPath;
+    this.isTemporaryRepository = !!tempPath;
     this.branch = config.settings.branch || 'main';
     this.includePatterns = config.settings.includePatterns || ['**/*'];
     this.excludePatterns = config.settings.excludePatterns || [
@@ -46,6 +51,7 @@ export class GitConnector extends BaseConnector {
     ];
     this.maxFileSize = config.settings.maxFileSize || 1024 * 1024; // 1MB
     this.followSymlinks = config.settings.followSymlinks || false;
+    this.tempManager = TempDirectoryManager.getInstance();
 
     this.git = simpleGit(this.repositoryPath);
   }
@@ -125,9 +131,15 @@ export class GitConnector extends BaseConnector {
   }
 
   async disconnect(): Promise<void> {
+    // Clean up temporary repository before disconnecting
+    if (this.isTemporaryRepository) {
+      await this.cleanupTemporaryRepository();
+    }
+    
     this.setStatus(ConnectorStatus.DISCONNECTED);
     logger.info({
       connectorId: this.id,
+      isTemporary: this.isTemporaryRepository
     }, 'Git connector disconnected');
   }
 
@@ -629,6 +641,55 @@ export class GitConnector extends BaseConnector {
     }
 
     return filtered;
+  }
+
+  /**
+   * Check if this connector is using a temporary repository
+   */
+  public isUsingTemporaryRepository(): boolean {
+    return this.isTemporaryRepository;
+  }
+
+  /**
+   * Get the repository path (useful for temporary repositories)
+   */
+  public getRepositoryPath(): string {
+    return this.repositoryPath;
+  }
+
+  /**
+   * Clean up temporary repository if applicable
+   */
+  async cleanupTemporaryRepository(): Promise<void> {
+    if (this.isTemporaryRepository) {
+      try {
+        await this.tempManager.removeTempDirectory(this.repositoryPath);
+        logger.info({
+          connectorId: this.id,
+          repositoryPath: this.repositoryPath
+        }, 'Temporary repository cleaned up successfully');
+      } catch (error) {
+        logger.error({
+          connectorId: this.id,
+          repositoryPath: this.repositoryPath,
+          error
+        }, 'Failed to cleanup temporary repository');
+        // Don't throw error for cleanup failures
+      }
+    }
+  }
+
+  /**
+   * Factory method to create a GitConnector with a temporary repository
+   */
+  static createWithTemporaryRepository(config: GitConnectorConfig, tempPath: string): GitConnector {
+    const connector = new GitConnector(config, tempPath);
+    logger.info({
+      connectorId: connector.id,
+      tempPath,
+      repositoryPath: config.settings.repositoryPath
+    }, 'Created GitConnector with temporary repository');
+    return connector;
   }
 }
 

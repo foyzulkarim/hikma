@@ -13,6 +13,18 @@ export interface LegacyProjectSettings {
   enableAutoSync?: boolean;
   syncInterval?: number;
   followSymlinks?: boolean;
+  // New properties for URL-only repositories
+  isUrlOnlyRepository?: boolean;
+  enableTemporaryCloning?: boolean;
+}
+
+// Sync status tracking interface
+export interface ProjectSyncInfo {
+  syncStatus?: 'idle' | 'in_progress' | 'completed' | 'failed';
+  lastSyncAt?: string; // ISO date string
+  tempPath?: string;
+  syncId?: string;
+  errorMessage?: string;
 }
 
 export interface ProjectMember {
@@ -32,6 +44,7 @@ export class ProjectEntity {
     public readonly description: string | null,
     public readonly status: ProjectStatus,
     public readonly settings: JsonValue,
+    public readonly syncInfo: JsonValue,
     public readonly createdAt: Date,
     public readonly updatedAt: Date,
     public readonly members?: ProjectMember[]
@@ -51,6 +64,25 @@ export class ProjectEntity {
     return !!(settings.repositoryUrl || settings.repositoryPath);
   }
 
+  public isUrlOnlyRepository(): boolean {
+    const settings = this.getTypedSettings();
+    return !!(settings.repositoryUrl && !settings.repositoryPath && settings.isUrlOnlyRepository);
+  }
+
+  public requiresTemporaryCloning(): boolean {
+    const settings = this.getTypedSettings();
+    return this.isUrlOnlyRepository() && (settings.enableTemporaryCloning ?? true);
+  }
+
+  public canUseGitHubCli(): boolean {
+    const settings = this.getTypedSettings();
+    if (!settings.repositoryUrl) return false;
+    
+    // Check if it's a GitHub URL
+    const url = settings.repositoryUrl.toLowerCase();
+    return url.includes('github.com') || url.includes('github.enterprise');
+  }
+
   public getTypedSettings(): LegacyProjectSettings {
     return this.settings as LegacyProjectSettings;
   }
@@ -60,12 +92,45 @@ export class ProjectEntity {
     return ProjectSettings.create(legacySettings);
   }
 
-  public getRepositoryInfo(): { url?: string; path?: string; branch?: string } {
+  public getSyncInfo(): ProjectSyncInfo {
+    return (this.syncInfo as ProjectSyncInfo) || {};
+  }
+
+  public isSyncInProgress(): boolean {
+    const syncInfo = this.getSyncInfo();
+    return syncInfo.syncStatus === 'in_progress';
+  }
+
+  public hasValidTempClone(): boolean {
+    const syncInfo = this.getSyncInfo();
+    return !!(syncInfo.tempPath && syncInfo.syncStatus === 'completed');
+  }
+
+  public updateSyncStatus(updates: Partial<ProjectSyncInfo>): JsonValue {
+    const currentSyncInfo = this.getSyncInfo();
+    return {
+      ...currentSyncInfo,
+      ...updates,
+      lastSyncAt: updates.lastSyncAt || new Date().toISOString()
+    } as JsonValue;
+  }
+
+  public getRepositoryInfo(): { 
+    url?: string; 
+    path?: string; 
+    branch?: string;
+    isUrlOnly?: boolean;
+    requiresTempCloning?: boolean;
+    canUseGitHubCli?: boolean;
+  } {
     const projectSettings = this.getProjectSettings();
     return {
       url: projectSettings.repositoryUrl?.value,
       path: projectSettings.repositoryPath,
-      branch: projectSettings.branch
+      branch: projectSettings.branch,
+      isUrlOnly: this.isUrlOnlyRepository(),
+      requiresTempCloning: this.requiresTemporaryCloning(),
+      canUseGitHubCli: this.canUseGitHubCli()
     };
   }
 
@@ -103,13 +168,15 @@ export class ProjectEntity {
     description: string | null;
     status: ProjectStatus;
     settings: JsonValue;
+    syncInfo: JsonValue;
   } {
     return {
       name: data.name,
       slug: data.slug,
       description: data.description || null,
       status: 'ACTIVE' as ProjectStatus,
-      settings: (data.settings || {}) as JsonValue
+      settings: (data.settings || {}) as JsonValue,
+      syncInfo: { syncStatus: 'idle' } as JsonValue
     };
   }
 
@@ -118,6 +185,7 @@ export class ProjectEntity {
     description?: string | null;
     settings?: LegacyProjectSettings;
     status?: ProjectStatus;
+    syncInfo?: Partial<ProjectSyncInfo>;
   }): Partial<ProjectEntity> {
     const updates: any = {};
     
@@ -127,6 +195,9 @@ export class ProjectEntity {
     if (data.settings !== undefined) {
       updates.settings = { ...this.getTypedSettings(), ...data.settings } as JsonValue;
     }
+    if (data.syncInfo !== undefined) {
+      updates.syncInfo = this.updateSyncStatus(data.syncInfo);
+    }
 
     return updates;
   }
@@ -135,11 +206,32 @@ export class ProjectEntity {
   public validateSettings(): { isValid: boolean; errors: string[] } {
     try {
       const legacySettings = this.getTypedSettings();
+      const errors: string[] = [];
+      
       // Validate using the new ProjectSettings value object
       ProjectSettings.create(legacySettings);
+      
+      // Additional validation for URL-only repositories
+      if (legacySettings.isUrlOnlyRepository) {
+        if (!legacySettings.repositoryUrl) {
+          errors.push('Repository URL is required for URL-only repositories');
+        }
+        if (legacySettings.repositoryPath) {
+          errors.push('Repository path should not be set for URL-only repositories');
+        }
+      }
+      
+      // Validate GitHub CLI compatibility
+      if (legacySettings.enableTemporaryCloning && legacySettings.repositoryUrl) {
+        const url = legacySettings.repositoryUrl.toLowerCase();
+        if (!url.includes('github.com') && !url.includes('github.enterprise')) {
+          errors.push('Temporary cloning is currently only supported for GitHub repositories');
+        }
+      }
+      
       return {
-        isValid: true,
-        errors: []
+        isValid: errors.length === 0,
+        errors
       };
     } catch (error) {
       return {
@@ -157,11 +249,16 @@ export class ProjectEntity {
     repositoryUrl?: string;
     repositoryPath?: string;
     settings: LegacyProjectSettings;
+    syncInfo: ProjectSyncInfo;
     status: string;
     createdAt: string;
     updatedAt: string;
+    isUrlOnlyRepository?: boolean;
+    requiresTemporaryCloning?: boolean;
+    canUseGitHubCli?: boolean;
   } {
     const settings = this.getTypedSettings();
+    const syncInfo = this.getSyncInfo();
     
     return {
       id: this.id,
@@ -170,9 +267,13 @@ export class ProjectEntity {
       repositoryUrl: settings.repositoryUrl,
       repositoryPath: settings.repositoryPath,
       settings,
+      syncInfo,
       status: this.status,
       createdAt: this.createdAt.toISOString(),
-      updatedAt: this.updatedAt.toISOString()
+      updatedAt: this.updatedAt.toISOString(),
+      isUrlOnlyRepository: this.isUrlOnlyRepository(),
+      requiresTemporaryCloning: this.requiresTemporaryCloning(),
+      canUseGitHubCli: this.canUseGitHubCli()
     };
   }
 }

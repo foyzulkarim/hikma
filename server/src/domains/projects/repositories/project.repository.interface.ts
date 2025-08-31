@@ -13,6 +13,7 @@ export interface CreateProjectData {
   description?: string | null;
   slug: string;
   userId: string;
+  repositoryUrl?: string;
   settings?: Record<string, any>;
 }
 

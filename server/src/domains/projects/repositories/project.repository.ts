@@ -21,34 +21,52 @@ export class ProjectRepository implements IProjectRepository {
       throw new Error(`Project with slug '${data.slug}' already exists.`);
     }
 
-    // Create project and add owner in transaction
-    const result = await this.prisma.$transaction(async (tx) => {
-      const newProject = await tx.project.create({
-        data: {
-          name: data.name,
-          slug: data.slug,
-          description: data.description,
-          settings: data.settings || {},
-          status: 'ACTIVE' as ProjectStatus,
-        },
-        include: {
-          members: true
+    try {
+      // Create project and add owner in transaction
+      const result = await this.prisma.$transaction(async (tx) => {
+        const newProject = await tx.project.create({
+          data: {
+            name: data.name,
+            slug: data.slug,
+            description: data.description,
+            repositoryUrl: data.repositoryUrl,
+            settings: data.settings || {},
+            status: 'ACTIVE' as ProjectStatus,
+          } as any,
+          include: {
+            members: true
+          }
+        });
+
+        // Add creator as owner
+        await tx.projectMember.create({
+          data: {
+            projectId: newProject.id,
+            userId: data.userId,
+            role: 'OWNER' as MemberRole,
+          },
+        });
+
+        return newProject;
+      });
+
+      return this.mapToEntity(result);
+    } catch (error: any) {
+      // Handle Prisma unique constraint errors
+      if (error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (target && target.includes('repositoryUrl')) {
+          throw new Error('A project with this repository URL already exists.');
         }
-      });
-
-      // Add creator as owner
-      await tx.projectMember.create({
-        data: {
-          projectId: newProject.id,
-          userId: data.userId,
-          role: 'OWNER' as MemberRole,
-        },
-      });
-
-      return newProject;
-    });
-
-    return this.mapToEntity(result);
+        if (target && target.includes('slug')) {
+          throw new Error(`Project with slug '${data.slug}' already exists.`);
+        }
+        throw new Error('A project with these details already exists.');
+      }
+      
+      // Re-throw other errors
+      throw error;
+    }
   }
 
   async findById(id: string, userId?: string): Promise<ProjectEntity | null> {
@@ -276,8 +294,8 @@ export class ProjectRepository implements IProjectRepository {
         syncInfo: {
           ...syncInfo,
           lastSyncAt: syncInfo.lastSyncAt || new Date().toISOString()
-        } as any
-      },
+        }
+      } as any,
       include: {
         members: true
       }

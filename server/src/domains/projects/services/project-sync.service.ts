@@ -70,6 +70,42 @@ export class ProjectSyncService {
         correlationId
       });
 
+      // Check if sync is already in progress
+      if (project.isSyncInProgress()) {
+        const syncInfo = project.getSyncInfo();
+        logger.info('Sync already in progress for project', {
+          projectId: id,
+          existingSyncId: syncInfo.syncId,
+          syncStatus: syncInfo.syncStatus,
+          correlationId
+        });
+        
+        return {
+          status: 'in_progress',
+          message: 'Sync is already in progress for this project',
+          syncId: syncInfo.syncId,
+          tempPath: syncInfo.tempPath
+        };
+      }
+
+      // Check if we have a valid existing temporary clone
+      if (project.hasValidTempClone()) {
+        const syncInfo = project.getSyncInfo();
+        logger.info('Valid temporary clone already exists', {
+          projectId: id,
+          tempPath: syncInfo.tempPath,
+          lastSyncAt: syncInfo.lastSyncAt,
+          correlationId
+        });
+        
+        return {
+          status: 'success',
+          message: 'Project already synced with valid temporary clone',
+          syncId: syncInfo.syncId,
+          tempPath: syncInfo.tempPath
+        };
+      }
+
       // Check if project can be synced
       logger.info('Checking project sync capability', {
         projectId: id,
@@ -100,11 +136,18 @@ export class ProjectSyncService {
         correlationId
       });
 
-      // Generate sync ID
+      // Generate sync ID and update sync status to in_progress
       const syncId = `sync_${id}_${Date.now()}`;
       const repositoryInfo = project.getRepositoryInfo();
       
-      logger.info('Generated sync ID and retrieved repository info', {
+      // Update project sync status to in_progress
+      await this.projectRepository.updateSyncStatus(id, {
+        syncStatus: 'in_progress',
+        syncId,
+        lastSyncAt: new Date().toISOString()
+      });
+      
+      logger.info('Generated sync ID, updated sync status to in_progress, and retrieved repository info', {
         projectId: id,
         syncId,
         repositoryInfo: {
@@ -151,6 +194,11 @@ export class ProjectSyncService {
           correlationId
         );
         cleanupRequired = true;
+
+        // Update sync status with tempPath
+        await this.projectRepository.updateSyncStatus(id, {
+          tempPath
+        });
 
         logger.info('Repository cloned to temporary directory successfully', {
           projectId: id,
@@ -228,6 +276,20 @@ export class ProjectSyncService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       
+      // Update sync status to failed
+        try {
+          await this.projectRepository.updateSyncStatus(id, {
+            syncStatus: 'failed',
+            errorMessage
+          });
+      } catch (updateError) {
+        logger.error('Failed to update sync status to error', {
+          projectId: id,
+          updateError: updateError instanceof Error ? updateError.message : 'Unknown error',
+          correlationId
+        });
+      }
+      
       logger.error('ProjectSyncService.syncProject failed', {
         projectId: id,
         userId,
@@ -294,6 +356,23 @@ export class ProjectSyncService {
         repositoryUrl,
         correlationId: cloneCorrelationId
       });
+
+      // Verify directory exists before proceeding with clone
+      const fs = await import('fs/promises');
+      try {
+        await fs.access(tempDir);
+        logger.info('Verified temporary directory exists', {
+          tempDir,
+          correlationId: cloneCorrelationId
+        });
+      } catch (accessError) {
+        logger.error('Temporary directory does not exist or is not accessible', {
+          tempDir,
+          error: accessError instanceof Error ? accessError.message : 'Unknown error',
+          correlationId: cloneCorrelationId
+        });
+        throw new Error(`Temporary directory ${tempDir} is not accessible`);
+      }
 
       // Clone repository using GitService
       logger.info('Starting repository clone operation', {

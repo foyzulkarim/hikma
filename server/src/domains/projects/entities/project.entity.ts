@@ -18,6 +18,15 @@ export interface LegacyProjectSettings {
   enableTemporaryCloning?: boolean;
 }
 
+// Sync status tracking interface
+export interface ProjectSyncInfo {
+  syncStatus?: 'idle' | 'in_progress' | 'completed' | 'failed';
+  lastSyncAt?: string; // ISO date string
+  tempPath?: string;
+  syncId?: string;
+  errorMessage?: string;
+}
+
 export interface ProjectMember {
   id: string;
   projectId: string;
@@ -35,6 +44,7 @@ export class ProjectEntity {
     public readonly description: string | null,
     public readonly status: ProjectStatus,
     public readonly settings: JsonValue,
+    public readonly syncInfo: JsonValue,
     public readonly createdAt: Date,
     public readonly updatedAt: Date,
     public readonly members?: ProjectMember[]
@@ -80,6 +90,29 @@ export class ProjectEntity {
   public getProjectSettings(): ProjectSettings {
     const legacySettings = this.getTypedSettings();
     return ProjectSettings.create(legacySettings);
+  }
+
+  public getSyncInfo(): ProjectSyncInfo {
+    return (this.syncInfo as ProjectSyncInfo) || {};
+  }
+
+  public isSyncInProgress(): boolean {
+    const syncInfo = this.getSyncInfo();
+    return syncInfo.syncStatus === 'in_progress';
+  }
+
+  public hasValidTempClone(): boolean {
+    const syncInfo = this.getSyncInfo();
+    return !!(syncInfo.tempPath && syncInfo.syncStatus === 'completed');
+  }
+
+  public updateSyncStatus(updates: Partial<ProjectSyncInfo>): JsonValue {
+    const currentSyncInfo = this.getSyncInfo();
+    return {
+      ...currentSyncInfo,
+      ...updates,
+      lastSyncAt: updates.lastSyncAt || new Date().toISOString()
+    } as JsonValue;
   }
 
   public getRepositoryInfo(): { 
@@ -135,13 +168,15 @@ export class ProjectEntity {
     description: string | null;
     status: ProjectStatus;
     settings: JsonValue;
+    syncInfo: JsonValue;
   } {
     return {
       name: data.name,
       slug: data.slug,
       description: data.description || null,
       status: 'ACTIVE' as ProjectStatus,
-      settings: (data.settings || {}) as JsonValue
+      settings: (data.settings || {}) as JsonValue,
+      syncInfo: { syncStatus: 'idle' } as JsonValue
     };
   }
 
@@ -150,6 +185,7 @@ export class ProjectEntity {
     description?: string | null;
     settings?: LegacyProjectSettings;
     status?: ProjectStatus;
+    syncInfo?: Partial<ProjectSyncInfo>;
   }): Partial<ProjectEntity> {
     const updates: any = {};
     
@@ -158,6 +194,9 @@ export class ProjectEntity {
     if (data.status !== undefined) updates.status = data.status;
     if (data.settings !== undefined) {
       updates.settings = { ...this.getTypedSettings(), ...data.settings } as JsonValue;
+    }
+    if (data.syncInfo !== undefined) {
+      updates.syncInfo = this.updateSyncStatus(data.syncInfo);
     }
 
     return updates;
@@ -210,6 +249,7 @@ export class ProjectEntity {
     repositoryUrl?: string;
     repositoryPath?: string;
     settings: LegacyProjectSettings;
+    syncInfo: ProjectSyncInfo;
     status: string;
     createdAt: string;
     updatedAt: string;
@@ -218,6 +258,7 @@ export class ProjectEntity {
     canUseGitHubCli?: boolean;
   } {
     const settings = this.getTypedSettings();
+    const syncInfo = this.getSyncInfo();
     
     return {
       id: this.id,
@@ -226,6 +267,7 @@ export class ProjectEntity {
       repositoryUrl: settings.repositoryUrl,
       repositoryPath: settings.repositoryPath,
       settings,
+      syncInfo,
       status: this.status,
       createdAt: this.createdAt.toISOString(),
       updatedAt: this.updatedAt.toISOString(),

@@ -65,8 +65,10 @@ export class ProjectService {
         existingProject.description,
         existingProject.status,
         { ...existingProject.getTypedSettings(), ...data.settings },
+        existingProject.syncInfo,
         existingProject.createdAt,
-        existingProject.updatedAt
+        existingProject.updatedAt,
+        existingProject.members
       );
 
       const validation = tempProject.validateSettings();

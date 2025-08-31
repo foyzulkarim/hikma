@@ -99,6 +99,9 @@ export class ProjectRepository implements IProjectRepository {
     if (data.description !== undefined) updateData.description = data.description;
     if (data.status !== undefined) updateData.status = data.status as ProjectStatus;
     if (data.settings !== undefined) updateData.settings = data.settings;
+    if (data.syncInfo !== undefined) {
+      updateData.syncInfo = data.syncInfo;
+    }
 
     const updatedProject = await this.prisma.project.update({
       where: { id },
@@ -189,47 +192,7 @@ export class ProjectRepository implements IProjectRepository {
     };
   }
 
-  async findAll(options: FindProjectsOptions = {}): Promise<ProjectListResult> {
-    const {
-      limit = 10,
-      offset = 0,
-      status,
-      sortBy = 'updatedAt',
-      sortOrder = 'desc'
-    } = options;
 
-    const whereClause: any = {};
-    if (status) {
-      whereClause.status = status as ProjectStatus;
-    }
-
-    const [projects, total] = await Promise.all([
-      this.prisma.project.findMany({
-        where: whereClause,
-        include: {
-          members: true
-        },
-        orderBy: {
-          [sortBy]: sortOrder
-        },
-        take: limit,
-        skip: offset
-      }),
-      this.prisma.project.count({
-        where: whereClause
-      })
-    ]);
-
-    return {
-      projects: projects.map(p => this.mapToEntity(p)),
-      metadata: {
-        total,
-        limit,
-        offset,
-        hasMore: offset + limit < total
-      }
-    };
-  }
 
   async count(userId?: string): Promise<number> {
     const whereClause: any = {};
@@ -306,6 +269,23 @@ export class ProjectRepository implements IProjectRepository {
     return !!member;
   }
 
+  async updateSyncStatus(projectId: string, syncInfo: Partial<import('../entities/project.entity').ProjectSyncInfo>): Promise<ProjectEntity> {
+    const updatedProject = await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        syncInfo: {
+          ...syncInfo,
+          lastSyncAt: syncInfo.lastSyncAt || new Date().toISOString()
+        } as any
+      },
+      include: {
+        members: true
+      }
+    });
+
+    return this.mapToEntity(updatedProject);
+  }
+
   private mapToEntity(project: any): ProjectEntity {
     return new ProjectEntity(
       project.id,
@@ -314,6 +294,7 @@ export class ProjectRepository implements IProjectRepository {
       project.description,
       project.status,
       project.settings,
+      project.syncInfo || {},
       project.createdAt,
       project.updatedAt,
       project.members?.map((member: any) => ({

@@ -147,10 +147,12 @@ export class ValidRepositoryUrlSpecification extends BaseSpecification<ProjectVa
     }
 
     // Check if URL matches supported patterns
-    return this.gitUrlRegex.test(repositoryUrl) || 
-           this.githubUrlRegex.test(repositoryUrl) || 
-           this.gitlabUrlRegex.test(repositoryUrl) ||
-           this.bitbucketUrlRegex.test(repositoryUrl);
+    const isValidFormat = this.gitUrlRegex.test(repositoryUrl) || 
+                         this.githubUrlRegex.test(repositoryUrl) || 
+                         this.gitlabUrlRegex.test(repositoryUrl) ||
+                         this.bitbucketUrlRegex.test(repositoryUrl);
+    
+    return isValidFormat;
   }
 }
 

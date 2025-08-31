@@ -111,6 +111,22 @@ export const appConfig = {
     syncInterval: parseInt(process.env.INGESTION_SYNC_INTERVAL || '3600000', 10), // 1 hour
   },
 
+  // AST parsing configuration
+  astParsing: {
+    enabled: process.env.AST_PARSING_ENABLED !== 'false', // Default to true
+    supportedLanguages: process.env.AST_SUPPORTED_LANGUAGES?.split(',') || [
+      'javascript', 'typescript', 'python', 'java', 'cpp', 'c', 'go', 'rust'
+    ],
+    maxFileSize: parseInt(process.env.AST_MAX_FILE_SIZE || '1048576', 10), // 1MB
+    chunkingStrategy: process.env.AST_CHUNKING_STRATEGY || 'function', // 'function', 'class', 'mixed'
+    includeComments: process.env.AST_INCLUDE_COMMENTS === 'true',
+    includeImports: process.env.AST_INCLUDE_IMPORTS !== 'false', // Default to true
+    maxDepth: parseInt(process.env.AST_MAX_DEPTH || '10', 10),
+    timeout: parseInt(process.env.AST_PARSING_TIMEOUT || '30000', 10), // 30 seconds
+    enableCaching: process.env.AST_ENABLE_CACHING !== 'false', // Default to true
+    cacheSize: parseInt(process.env.AST_CACHE_SIZE || '1000', 10),
+  },
+
   // Development Configuration
   development: {
     seedData: process.env.DEV_SEED_DATA === 'true',
@@ -205,6 +221,9 @@ export class ConfigValidator {
       errors.push('BCRYPT_ROUNDS must be between 10 and 15');
     }
 
+    // Validate AST parsing configuration
+    ConfigValidator.validateASTParsingConfig(errors);
+
     // Validate external services configuration
     ConfigValidator.validateExternalServices(errors);
 
@@ -279,6 +298,43 @@ export class ConfigValidator {
     // Vector DB validation
     if (appConfig.vectorDb.provider === 'qdrant' && !appConfig.vectorDb.url) {
       errors.push('QDRANT_URL is required when using Qdrant as vector database');
+    }
+  }
+
+  private static validateASTParsingConfig(errors: string[]): void {
+    const astConfig = appConfig.astParsing;
+
+    // Validate max file size
+    if (astConfig.maxFileSize < 1024 || astConfig.maxFileSize > 10485760) { // 1KB to 10MB
+      errors.push('AST_MAX_FILE_SIZE must be between 1024 and 10485760 bytes (1KB to 10MB)');
+    }
+
+    // Validate chunking strategy
+    const validStrategies = ['function', 'class', 'mixed'];
+    if (!validStrategies.includes(astConfig.chunkingStrategy)) {
+      errors.push(`AST_CHUNKING_STRATEGY must be one of: ${validStrategies.join(', ')}`);
+    }
+
+    // Validate max depth
+    if (astConfig.maxDepth < 1 || astConfig.maxDepth > 50) {
+      errors.push('AST_MAX_DEPTH must be between 1 and 50');
+    }
+
+    // Validate timeout
+    if (astConfig.timeout < 1000 || astConfig.timeout > 300000) { // 1 second to 5 minutes
+      errors.push('AST_PARSING_TIMEOUT must be between 1000 and 300000 milliseconds (1s to 5m)');
+    }
+
+    // Validate cache size
+    if (astConfig.cacheSize < 10 || astConfig.cacheSize > 10000) {
+      errors.push('AST_CACHE_SIZE must be between 10 and 10000');
+    }
+
+    // Validate supported languages
+    const validLanguages = ['javascript', 'typescript', 'python', 'java', 'cpp', 'c', 'go', 'rust', 'php', 'ruby', 'swift', 'kotlin'];
+    const invalidLanguages = astConfig.supportedLanguages.filter(lang => !validLanguages.includes(lang));
+    if (invalidLanguages.length > 0) {
+      errors.push(`Invalid AST_SUPPORTED_LANGUAGES: ${invalidLanguages.join(', ')}. Valid options: ${validLanguages.join(', ')}`);
     }
   }
 

@@ -94,6 +94,20 @@ export interface VectorMetadata {
   tokens: number;
   chunkIndex: number;
   totalChunks: number;
+  // AST-specific metadata
+  astNodeType?: ASTNodeType;
+  functionName?: string;
+  className?: string;
+  methodName?: string;
+  parameters?: string[];
+  returnType?: string;
+  visibility?: 'public' | 'private' | 'protected';
+  isStatic?: boolean;
+  isAsync?: boolean;
+  complexity?: number;
+  dependencies?: string[];
+  startLine?: number;
+  endLine?: number;
 }
 
 // Embedding request
@@ -144,6 +158,27 @@ export interface VectorFilter {
   path?: {
     $regex?: string;
   };
+  // AST-specific filters
+  astNodeType?: ASTNodeType | ASTNodeType[];
+  functionName?: string | string[];
+  className?: string | string[];
+  methodName?: string | string[];
+  visibility?: ('public' | 'private' | 'protected')[];
+  isStatic?: boolean;
+  isAsync?: boolean;
+  complexity?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  dependencies?: string | string[];
+  startLine?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  endLine?: {
+    $gte?: number;
+    $lte?: number;
+  };
   [key: string]: any;
 }
 
@@ -172,6 +207,39 @@ export enum ChunkingStrategy {
   CODE = 'CODE',
 }
 
+// AST-specific chunk types
+export enum ASTNodeType {
+  CLASS = 'class',
+  FUNCTION = 'function',
+  METHOD = 'method',
+  INTERFACE = 'interface',
+  TYPE = 'type',
+  VARIABLE = 'variable',
+  CONSTANT = 'constant',
+  IMPORT = 'import',
+  EXPORT = 'export',
+  COMMENT = 'comment',
+  OTHER = 'other'
+}
+
+// AST chunk metadata
+export interface ASTChunkMetadata extends ChunkMetadata {
+  astNodeType?: ASTNodeType;
+  functionName?: string;
+  className?: string;
+  methodName?: string;
+  parameters?: string[];
+  returnType?: string;
+  visibility?: 'public' | 'private' | 'protected';
+  isStatic?: boolean;
+  isAsync?: boolean;
+  complexity?: number;
+  dependencies?: string[];
+  startLine?: number;
+  endLine?: number;
+  syntaxTree?: any; // Simplified AST representation
+}
+
 // Chunking configuration
 export interface ChunkingConfig {
   strategy: ChunkingStrategy;
@@ -182,6 +250,7 @@ export interface ChunkingConfig {
   separators?: string[];
   preserveStructure?: boolean;
   respectBoundaries?: boolean;
+  language?: string; // Language for AST-based code parsing
 }
 
 // Chunking result

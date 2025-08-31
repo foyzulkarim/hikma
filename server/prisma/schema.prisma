@@ -274,10 +274,41 @@ model DocumentChunk {
 
   // Relationships
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  astMetadata ASTChunkMetadata?
 
   @@unique([documentId, chunkIndex])
   @@index([vectorId])
   @@map("document_chunks")
+}
+
+// AST-specific chunk metadata
+model ASTChunkMetadata {
+  id            String    @id @default(cuid())
+  chunkId       String    @unique
+  astNodeType   String?   // Maps to ASTNodeType enum
+  functionName  String?
+  className     String?
+  methodName    String?
+  parameters    String[]  @default([])
+  returnType    String?
+  visibility    String?   // public, private, protected
+  isStatic      Boolean   @default(false)
+  isAsync       Boolean   @default(false)
+  complexity    Int?
+  dependencies  String[]  @default([])
+  startLine     Int?
+  endLine       Int?
+  syntaxTree    Json?     // Simplified AST representation
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relationships
+  chunk DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@index([astNodeType])
+  @@index([functionName])
+  @@index([className])
+  @@map("ast_chunk_metadata")
 }
 
 // Query and Response Logging

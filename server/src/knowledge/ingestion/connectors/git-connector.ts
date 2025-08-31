@@ -19,6 +19,7 @@ import {
 import { logger } from '@/core/utils/logger';
 import { HashUtils } from '@/core/utils/crypto';
 import { TempDirectoryManager } from '@/shared/utils/temp-directory.util';
+import { ASTProcessingHandler, ASTProcessingEvent } from '../../handlers/ast-processing.handler';
 
 // Git connector implementation
 export class GitConnector extends BaseConnector {
@@ -31,6 +32,7 @@ export class GitConnector extends BaseConnector {
   private followSymlinks: boolean;
   private isTemporaryRepository: boolean;
   private tempManager: TempDirectoryManager;
+  private astProcessingHandler: ASTProcessingHandler;
 
   constructor(config: GitConnectorConfig, tempPath?: string) {
     super(config);
@@ -52,6 +54,7 @@ export class GitConnector extends BaseConnector {
     this.maxFileSize = config.settings.maxFileSize || 1024 * 1024; // 1MB
     this.followSymlinks = config.settings.followSymlinks || false;
     this.tempManager = TempDirectoryManager.getInstance();
+    this.astProcessingHandler = new ASTProcessingHandler();
 
     this.git = simpleGit(this.repositoryPath);
   }
@@ -448,6 +451,11 @@ export class GitConnector extends BaseConnector {
         updatedAt: lastCommit ? new Date(lastCommit.date) : stats.mtime,
       };
 
+      // Trigger AST processing for code files
+      if (this.isCodeFile(filePath)) {
+        await this.triggerASTProcessing(document);
+      }
+
       return document;
     } catch (error) {
       logger.error({
@@ -615,6 +623,42 @@ export class GitConnector extends BaseConnector {
     };
 
     return languageMap[ext] || 'text';
+  }
+
+  private isCodeFile(filePath: string): boolean {
+    const ext = path.extname(filePath).toLowerCase();
+    const codeExtensions = [
+      '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.cpp', '.c', '.h',
+      '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.scala'
+    ];
+    return codeExtensions.includes(ext);
+  }
+
+  private async triggerASTProcessing(document: ExtractedDocument): Promise<void> {
+    try {
+      const event: ASTProcessingEvent = {
+        projectId: this.config.id, // Use config.id as projectId
+        filePath: document.metadata.path || document.externalId,
+        content: document.content,
+        language: document.metadata.language,
+        sourceId: this.id,
+        sourceType: 'git'
+      };
+
+      await this.astProcessingHandler.handleASTProcessing(event);
+      
+      logger.debug({
+        connectorId: this.id,
+        filePath: event.filePath,
+        language: event.language
+      }, 'AST processing triggered for code file');
+    } catch (error) {
+      logger.error({
+        connectorId: this.id,
+        filePath: document.metadata.path || document.externalId,
+        error
+      }, 'Failed to trigger AST processing');
+    }
   }
 
   private applyFilters(documents: ExtractedDocument[], options?: GetDocumentsOptions): ExtractedDocument[] {

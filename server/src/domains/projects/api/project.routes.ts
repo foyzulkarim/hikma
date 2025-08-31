@@ -6,6 +6,7 @@ import { ProjectService, ProjectSyncService, ProjectMemberService } from '../ser
 import { CreateProjectUseCase } from '../use-cases/create-project.use-case';
 import { SyncProjectUseCase } from '../use-cases/sync-project.use-case';
 import { DeleteProjectUseCase } from '../use-cases/delete-project.use-case';
+import { logger } from '@/core/utils/logger';
 // import { AuthService } from '@/domains/users/auth/service';
 // import { IUserRepository } from '@/domains/users/repositories/user.repository';
 // import { IUserEventEmitter } from '@/domains/users/events/user.events';
@@ -42,16 +43,16 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   const service = new ProjectService(repository);
   const syncService = new ProjectSyncService(repository);
   const memberService = new ProjectMemberService(repository, memberRepository);
-  
+
   // Initialize use cases
   const createProjectUseCase = new CreateProjectUseCase(service);
   const syncProjectUseCase = new SyncProjectUseCase(service, syncService);
   const deleteProjectUseCase = new DeleteProjectUseCase(service);
-  
+
   // Initialize auth service (commented out until proper user repository is available)
   // const authService = new AuthService(userRepository, userEventEmitter);
   // const authMiddleware = createProjectAuthMiddleware(authService);
-  
+
   // Initialize handlers
   const projectHandlers = new ProjectHandlers(service, createProjectUseCase, deleteProjectUseCase);
   const projectSyncHandlers = new ProjectSyncHandlers(syncService, syncProjectUseCase);
@@ -153,7 +154,12 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         properties: {
           projectId: { type: 'string' }
         },
-        required: ['projectId']
+        required: ['projectId'],
+        examples: ['cmey2a0t300013y88wnmwov1y',
+          {
+            projectId: 'cmey2a0t300013y88wnmwov1y'
+          }
+        ]
       },
       response: {
         200: syncResponseSchema,
@@ -164,7 +170,41 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       }
     },
     // preHandler: authMiddleware.requireAuth(), // Uncomment when auth is properly initialized
-  }, projectSyncHandlers.syncProject.bind(projectSyncHandlers));
+  }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const correlationId = request.headers['x-correlation-id'] || `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    logger.info('Project sync request received', {
+      projectId,
+      correlationId,
+      method: request.method,
+      url: request.url,
+      userAgent: request.headers['user-agent'],
+      ip: request.ip
+    });
+    
+    try {
+      const result = await projectSyncHandlers.syncProject(request, reply);
+      
+      logger.info('Project sync request completed successfully', {
+        projectId,
+        correlationId,
+        statusCode: reply.statusCode
+      });
+      
+      return result;
+    } catch (error) {
+      logger.error('Project sync request failed', {
+        projectId,
+        correlationId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        statusCode: reply.statusCode
+      });
+      
+      throw error;
+    }
+  });
 
   // Get project members
   fastify.get('/:id/members', {

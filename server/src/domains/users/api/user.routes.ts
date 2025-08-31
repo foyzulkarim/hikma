@@ -30,7 +30,17 @@ export const userRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
           emailOrUsername: { type: 'string', minLength: 1 },
           password: { type: 'string', minLength: 1 }
         },
-        required: ['emailOrUsername', 'password']
+        required: ['emailOrUsername', 'password'],
+        examples: [
+          {
+            emailOrUsername: 'user@example.com',
+            password: 'Pass@123'
+          },
+          {
+            emailOrUsername: 'johndoe',
+            password: 'MyPassword456'
+          }
+        ]
       },
       response: {
         200: {

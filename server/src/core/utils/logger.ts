@@ -25,11 +25,21 @@ const loggerConfig = {
   },
 };
 
-// Create logger instance
+// Create logger instance with pretty printing in development
 export const logger = pino(
   loggerConfig,
   process.env.NODE_ENV === 'development'
-    ? pino.destination({ sync: false })
+    ? pino.transport({
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname',
+          singleLine: false,
+          hideObject: false,
+          messageFormat: '{msg}'
+        }
+      })
     : undefined
 );
 

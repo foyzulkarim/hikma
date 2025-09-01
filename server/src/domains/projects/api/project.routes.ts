@@ -174,33 +174,33 @@ export const projectRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     const { projectId } = request.params as { projectId: string };
     const correlationId = request.headers['x-correlation-id'] || `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    logger.info('Project sync request received', {
+    logger.info({
       projectId,
       correlationId,
       method: request.method,
       url: request.url,
       userAgent: request.headers['user-agent'],
       ip: request.ip
-    });
+    }, 'Project sync request received');
     
     try {
       const result = await projectSyncHandlers.syncProject(request, reply);
       
-      logger.info('Project sync request completed successfully', {
+      logger.info({
         projectId,
         correlationId,
         statusCode: reply.statusCode
-      });
+      }, 'Project sync request completed successfully');
       
       return result;
     } catch (error) {
-      logger.error('Project sync request failed', {
+      logger.error({
         projectId,
         correlationId,
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         statusCode: reply.statusCode
-      });
+      }, 'Project sync request failed');
       
       throw error;
     }

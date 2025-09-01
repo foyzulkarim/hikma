@@ -37,31 +37,31 @@ export class ProjectEventHandlersService {
     const startTime = Date.now();
 
     try {
-      logger.info('Initializing ProjectEventHandlersService', {
+      logger.info({
         correlationId,
         timestamp: new Date().toISOString()
-      });
+      }, 'Initializing ProjectEventHandlersService');
 
       this.initialized = true;
       
       const duration = Date.now() - startTime;
-      logger.info('ProjectEventHandlersService initialized successfully', {
+      logger.info({
         correlationId,
         duration,
         timestamp: new Date().toISOString()
-      });
+      }, 'ProjectEventHandlersService initialized successfully');
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      logger.error('ProjectEventHandlersService initialization failed', {
+      logger.error({
         correlationId,
         error: errorMessage,
         stack: errorStack,
         duration,
         timestamp: new Date().toISOString()
-      });
+      }, 'ProjectEventHandlersService initialization failed');
       
       throw error;
     }
@@ -73,24 +73,24 @@ export class ProjectEventHandlersService {
   private setupEventListeners(): void {
     const correlationId = uuidv4();
     
-    logger.info('Setting up project event listeners', {
+    logger.info({
       correlationId,
       events: [
         PROJECT_EVENTS.PROJECT_SYNC_STARTED,
         PROJECT_EVENTS.PROJECT_SYNC_COMPLETED
       ],
       timestamp: new Date().toISOString()
-    });
+    }, 'Setting up project event listeners');
 
     // Register event listeners
     eventBus.on(PROJECT_EVENTS.PROJECT_SYNC_STARTED, this.handleProjectSyncStarted.bind(this));
     eventBus.on(PROJECT_EVENTS.PROJECT_SYNC_COMPLETED, this.handleProjectSyncCompleted.bind(this));
 
-    logger.info('Project event listeners registered successfully', {
+    logger.info({
       correlationId,
       listenersCount: 2,
       timestamp: new Date().toISOString()
-    });
+    }, 'Project event listeners registered successfully');
   }
 
   /**
@@ -102,7 +102,7 @@ export class ProjectEventHandlersService {
     const startTime = Date.now();
 
     try {
-      logger.info('PROJECT_SYNC_STARTED event received', {
+      logger.info({
         correlationId,
         eventType: PROJECT_EVENTS.PROJECT_SYNC_STARTED,
         projectId: event.projectId,
@@ -117,10 +117,10 @@ export class ProjectEventHandlersService {
           tempPath: event.metadata?.tempPath,
           useTemporaryClone: event.metadata?.useTemporaryClone
         }
-      });
+      }, 'PROJECT_SYNC_STARTED event received');
 
       // Log sync context details
-      logger.debug('Project sync context details', {
+      logger.debug({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
@@ -134,26 +134,26 @@ export class ProjectEventHandlersService {
           eventTimestamp: event.timestamp,
           lastSyncAt: event.metadata?.lastSyncAt
         }
-      });
+      }, 'Project sync context details');
 
       // Perform any sync started processing here
       // e.g., update project status, notify other services, etc.
       await this.processSyncStarted(event, correlationId);
 
       const duration = Date.now() - startTime;
-      logger.info('PROJECT_SYNC_STARTED event processed successfully', {
+      logger.info({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
         duration,
         timestamp: new Date().toISOString()
-      });
+      }, 'PROJECT_SYNC_STARTED event processed successfully');
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      logger.error('Failed to process PROJECT_SYNC_STARTED event', {
+      logger.error({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
@@ -166,7 +166,7 @@ export class ProjectEventHandlersService {
           branch: event.branch,
           timestamp: event.timestamp
         }
-      });
+      }, 'Failed to process PROJECT_SYNC_STARTED event');
       
       // Don't throw error to prevent breaking other event handlers
       // Log and continue
@@ -182,7 +182,7 @@ export class ProjectEventHandlersService {
     const startTime = Date.now();
 
     try {
-      logger.info('PROJECT_SYNC_COMPLETED event received', {
+      logger.info({
         correlationId,
         eventType: PROJECT_EVENTS.PROJECT_SYNC_COMPLETED,
         projectId: event.projectId,
@@ -195,10 +195,10 @@ export class ProjectEventHandlersService {
         documentsDeleted: event.documentsDeleted,
         duration: event.duration,
         timestamp: event.timestamp
-      });
+      }, 'PROJECT_SYNC_COMPLETED event received');
 
       // Log detailed sync results
-      logger.info('Project sync completion details', {
+      logger.info({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
@@ -220,29 +220,29 @@ export class ProjectEventHandlersService {
           warnings: event.metadata?.warnings,
           repositoryInfo: event.metadata?.repositoryInfo
         }
-      });
+      }, 'Project sync completion details');
 
       // Log warnings if present
       if (event.metadata?.warnings && event.metadata.warnings.length > 0) {
-        logger.warn('Project sync completed with warnings', {
+        logger.warn({
           correlationId,
           projectId: event.projectId,
           syncId: event.syncId,
           warningsCount: event.metadata.warnings.length,
           warnings: event.metadata.warnings
-        });
+        }, 'Project sync completed with warnings');
       }
 
       // Log errors if present
       if (event.metadata?.errors && event.metadata.errors.length > 0) {
-        logger.error('Project sync completed with errors', {
+        logger.error({
           correlationId,
           projectId: event.projectId,
           syncId: event.syncId,
           errorsCount: event.metadata.errors.length,
           errors: event.metadata.errors,
           status: event.status
-        });
+        }, 'Project sync completed with errors');
       }
 
       // Perform any sync completed processing here
@@ -250,19 +250,19 @@ export class ProjectEventHandlersService {
       await this.processSyncCompleted(event, correlationId);
 
       const duration = Date.now() - startTime;
-      logger.info('PROJECT_SYNC_COMPLETED event processed successfully', {
+      logger.info({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
         duration,
         timestamp: new Date().toISOString()
-      });
+      }, 'PROJECT_SYNC_COMPLETED event processed successfully');
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      logger.error('Failed to process PROJECT_SYNC_COMPLETED event', {
+      logger.error({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
@@ -275,7 +275,7 @@ export class ProjectEventHandlersService {
           documentsProcessed: event.documentsProcessed,
           timestamp: event.timestamp
         }
-      });
+      }, 'Failed to process PROJECT_SYNC_COMPLETED event');
       
       // Don't throw error to prevent breaking other event handlers
       // Log and continue
@@ -286,12 +286,12 @@ export class ProjectEventHandlersService {
    * Process sync started event - placeholder for business logic
    */
   private async processSyncStarted(event: ProjectSyncStartedEvent, correlationId: string): Promise<void> {
-    logger.debug('Processing sync started event', {
+    logger.debug({
       correlationId,
       projectId: event.projectId,
       syncId: event.syncId,
       action: 'sync_started_processing'
-    });
+    }, 'Processing sync started event');
 
     try {
       // Get project details
@@ -319,11 +319,11 @@ export class ProjectEventHandlersService {
             if (gitDirExists) {
               tempDir = syncInfo.tempPath;
               isExistingRepo = true;
-              logger.info('Valid temporary clone already exists, performing git pull', {
+              logger.info({
                 correlationId,
                 projectId: project.id,
                 tempPath: tempDir
-              });
+              }, 'Valid temporary clone already exists, performing git pull');
            } else {
              // Directory exists but no .git, create new temp directory
              tempDir = await this.tempManager.createTempDirectory({
@@ -354,11 +354,11 @@ export class ProjectEventHandlersService {
            branch: event.branch
          }, correlationId);
          
-         logger.info('Repository updated successfully via git pull', {
+         logger.info({
            correlationId,
            projectId: project.id,
            tempPath: tempDir
-         });
+         }, 'Repository updated successfully via git pull');
        } else {
          // Repository doesn't exist, perform git clone
          await this.gitService.cloneRepository({
@@ -368,11 +368,11 @@ export class ProjectEventHandlersService {
            depth: 1
          }, correlationId);
          
-         logger.info('Repository cloned successfully', {
+         logger.info({
            correlationId,
            projectId: project.id,
            tempPath: tempDir
-         });
+         }, 'Repository cloned successfully');
        }
 
       // Update sync status to completed
@@ -403,20 +403,20 @@ export class ProjectEventHandlersService {
         }
       });
 
-      logger.info(`Sync completed successfully for project: ${project.id}`, {
+      logger.info({
         correlationId,
         projectId: project.id,
         syncId: event.syncId,
         tempClonePath: tempDir
-      });
+      }, `Sync completed successfully for project: ${project.id}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error(`Sync failed for project: ${event.projectId}`, {
+      logger.error({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
         error: errorMessage
-      });
+      }, `Sync failed for project: ${event.projectId}`);
       
       // Update sync status to failed
         await this.projectRepository.updateSyncStatus(event.projectId, {
@@ -448,24 +448,24 @@ export class ProjectEventHandlersService {
    * Process sync completed event - placeholder for business logic
    */
   private async processSyncCompleted(event: ProjectSyncCompletedEvent, correlationId: string): Promise<void> {
-    logger.debug('Processing sync completed event', {
+    logger.debug({
       correlationId,
       projectId: event.projectId,
       syncId: event.syncId,
       status: event.status,
       action: 'sync_completed_processing'
-    });
+    }, 'Processing sync completed event');
 
     try {
       // Log successful completion
-      logger.info(`Sync completed successfully for project: ${event.projectId}`, {
+      logger.info({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
         status: event.status,
         documentsProcessed: event.documentsProcessed,
         duration: event.duration
-      });
+      }, `Sync completed successfully for project: ${event.projectId}`);
 
       // Additional completion processing can be added here
       // Examples:
@@ -475,12 +475,12 @@ export class ProjectEventHandlersService {
       // - Clean up temporary resources if needed
       
     } catch (error) {
-      logger.error(`Error processing sync completion for project: ${event.projectId}`, {
+      logger.error({
         correlationId,
         projectId: event.projectId,
         syncId: event.syncId,
         error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      }, `Error processing sync completion for project: ${event.projectId}`);
     }
   }
 
@@ -500,20 +500,20 @@ export class ProjectEventHandlersService {
   cleanup(): void {
     const correlationId = uuidv4();
     
-    logger.info('Cleaning up project event handlers', {
+    logger.info({
       correlationId,
       timestamp: new Date().toISOString()
-    });
+    }, 'Cleaning up project event handlers');
 
     // Note: EventBus doesn't currently support removing listeners
     // This would need to be implemented if cleanup is required
     
     this.initialized = false;
     
-    logger.info('Project event handlers cleanup completed', {
+    logger.info({
       correlationId,
       timestamp: new Date().toISOString()
-    });
+    }, 'Project event handlers cleanup completed');
   }
 }
 

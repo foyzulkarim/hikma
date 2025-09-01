@@ -30,70 +30,70 @@ export class SyncProjectUseCase extends BaseUseCase<SyncProjectRequest, SyncProj
     const correlationId = `use-case-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
 
-    logger.info('SyncProjectUseCase.execute started', {
+    logger.info({
       projectId: request.projectId,
       userId: request.userId,
       force: request.force,
       correlationId
-    });
+    }, 'SyncProjectUseCase.execute started');
 
     try {
       // Validate input
-      logger.info('Validating sync project request', {
+      logger.info({
         projectId: request.projectId,
         userId: request.userId,
         correlationId
-      });
+      }, 'Validating sync project request');
 
       this.validateRequest(request);
 
-      logger.info('Request validation completed successfully', {
+      logger.info({
         projectId: request.projectId,
         userId: request.userId,
         correlationId
-      });
+      }, 'Request validation completed successfully');
 
       // Get project to verify access and get details
-      logger.info('Retrieving project for sync validation', {
+      logger.info({
         projectId: request.projectId,
         userId: request.userId,
         correlationId
-      });
+      }, 'Retrieving project for sync validation');
 
       const project = await this.projectService.getProject(request.projectId, request.userId);
 
       if (!project) {
-        logger.warn('Project not found or access denied', {
+        logger.warn({
           projectId: request.projectId,
           userId: request.userId,
           correlationId
-        });
+        }, 'Project not found or access denied');
         throw new Error('Project not found or access denied');
       }
 
-      logger.info('Project retrieved successfully', {
+      logger.info({
         projectId: project.id,
         projectName: project.name,
         userId: request.userId,
         correlationId
-      });
+      }, 'Project retrieved successfully');
 
       // Check if project can be synced
-      logger.info('Checking project sync capability', {
+      logger.info({
         projectId: project.id,
         projectName: project.name,
         userId: request.userId,
         correlationId
-      });
+      }, 'Checking project sync capability');
 
       if (!project.canSync()) {
-        logger.warn('Project cannot be synced', {
+        logger.warn({
           projectId: project.id,
           projectName: project.name,
           userId: request.userId,
           correlationId,
           reason: 'Project sync capability check failed'
-        });
+        }, 'Project cannot be synced');
 
         return {
           status: 'error',
@@ -105,26 +105,26 @@ export class SyncProjectUseCase extends BaseUseCase<SyncProjectRequest, SyncProj
         };
       }
 
-      logger.info('Project sync capability confirmed', {
+      logger.info({
         projectId: project.id,
         projectName: project.name,
         userId: request.userId,
         correlationId
-      });
+      }, 'Project sync capability confirmed');
 
       // Perform sync
-      logger.info('Initiating project sync service', {
+      logger.info({
         projectId: project.id,
         projectName: project.name,
         userId: request.userId,
         correlationId
-      });
+      }, 'Initiating project sync service');
 
       const syncResult = await this.syncService.syncProject(request.projectId, request.userId);
 
       const duration = Date.now() - startTime;
 
-      logger.info('SyncProjectUseCase.execute completed successfully', {
+      logger.info({
         projectId: project.id,
         projectName: project.name,
         userId: request.userId,
@@ -132,7 +132,7 @@ export class SyncProjectUseCase extends BaseUseCase<SyncProjectRequest, SyncProj
         syncStatus: syncResult.status,
         syncId: syncResult.syncId,
         duration
-      });
+      }, 'SyncProjectUseCase.execute completed successfully');
 
       return {
         status: syncResult.status,
@@ -149,14 +149,14 @@ export class SyncProjectUseCase extends BaseUseCase<SyncProjectRequest, SyncProj
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred during sync';
       const errorStack = error instanceof Error ? error.stack : undefined;
 
-      logger.error('SyncProjectUseCase.execute failed', {
+      logger.error({
         projectId: request.projectId,
         userId: request.userId,
         correlationId,
         error: errorMessage,
         stack: errorStack,
         duration
-      });
+      }, 'SyncProjectUseCase.execute failed');
 
       return {
         status: 'error',
@@ -168,45 +168,45 @@ export class SyncProjectUseCase extends BaseUseCase<SyncProjectRequest, SyncProj
   protected validateRequest(request: SyncProjectRequest): void {
     const correlationId = `validation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    logger.debug('Starting request validation', {
+    logger.debug({
       projectId: request.projectId,
       userId: request.userId,
       correlationId
-    });
+    }, 'Starting request validation');
 
     try {
       // Call base validation
       super.validateRequest(request);
 
-      logger.debug('Base validation completed', {
+      logger.debug({
         projectId: request.projectId,
         userId: request.userId,
         correlationId
-      });
+      }, 'Base validation completed');
 
       // Validate project ID
       this.validateRequiredString(request.projectId, 'Project ID');
 
-      logger.debug('Project ID validation completed', {
+      logger.debug({
         projectId: request.projectId,
         correlationId
-      });
+      }, 'Project ID validation completed');
 
       // Validate user ID
       this.validateRequiredString(request.userId, 'User ID');
 
-      logger.debug('User ID validation completed', {
+      logger.debug({
         userId: request.userId,
         correlationId
-      });
+      }, 'User ID validation completed');
     } catch (error) {
-      logger.error('Request validation failed', {
+      logger.error({
         projectId: request.projectId,
         userId: request.userId,
         correlationId,
         error: error instanceof Error ? error.message : 'Unknown validation error',
         stack: error instanceof Error ? error.stack : undefined
-      });
+      }, 'Request validation failed');
       throw error;
     }
   }

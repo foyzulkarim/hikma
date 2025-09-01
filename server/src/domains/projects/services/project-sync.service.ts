@@ -38,47 +38,47 @@ export class ProjectSyncService {
     const correlationId = `sync-service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
     
-    logger.info('ProjectSyncService.syncProject started', {
+    logger.info({
       projectId: id,
       userId,
       options,
       correlationId
-    });
+    }, 'ProjectSyncService.syncProject started');
 
     try {
       // Verify project exists and user has access
-      logger.info('Verifying project access and existence', {
+      logger.info({
         projectId: id,
         userId,
         correlationId
-      });
+      }, 'Verifying project access and existence');
       
       const project = await this.projectRepository.findById(id, userId);
       if (!project) {
-        logger.warn('Project not found or access denied', {
+        logger.warn({
           projectId: id,
           userId,
           correlationId
-        });
+        }, 'Project not found or access denied');
         throw new ValidationError('Project not found or access denied');
       }
 
-      logger.info('Project access verified successfully', {
+      logger.info({
         projectId: id,
         projectName: project.name,
         userId,
         correlationId
-      });
+      }, 'Project access verified successfully');
 
       // Check if sync is already in progress
       if (project.isSyncInProgress()) {
         const syncInfo = project.getSyncInfo();
-        logger.info('Sync already in progress for project', {
+        logger.info({
           projectId: id,
           existingSyncId: syncInfo.syncId,
           syncStatus: syncInfo.syncStatus,
           correlationId
-        });
+        }, 'Sync already in progress for project');
         
         return {
           status: 'in_progress',
@@ -91,12 +91,12 @@ export class ProjectSyncService {
       // Check if we have a valid existing temporary clone
       if (project.hasValidTempClone()) {
         const syncInfo = project.getSyncInfo();
-        logger.info('Valid temporary clone already exists', {
+        logger.info({
           projectId: id,
           tempPath: syncInfo.tempPath,
           lastSyncAt: syncInfo.lastSyncAt,
           correlationId
-        });
+        }, 'Valid temporary clone already exists');
         
         return {
           status: 'success',
@@ -107,21 +107,21 @@ export class ProjectSyncService {
       }
 
       // Check if project can be synced
-      logger.info('Checking project sync capability', {
+      logger.info({
         projectId: id,
         projectName: project.name,
         userId,
         correlationId
-      });
+      }, 'Checking project sync capability');
       
       if (!project.canSync()) {
-        logger.warn('Project cannot be synced', {
+        logger.warn({
           projectId: id,
           projectName: project.name,
           userId,
           correlationId,
           reason: 'Project sync capability check failed'
-        });
+        }, 'Project cannot be synced');
         
         return {
           status: 'error',
@@ -129,12 +129,12 @@ export class ProjectSyncService {
         };
       }
 
-      logger.info('Project sync capability confirmed', {
+      logger.info({
         projectId: id,
         projectName: project.name,
         userId,
         correlationId
-      });
+      }, 'Project sync capability confirmed');
 
       // Generate sync ID and update sync status to in_progress
       const syncId = `sync_${id}_${Date.now()}`;
@@ -147,7 +147,7 @@ export class ProjectSyncService {
         lastSyncAt: new Date().toISOString()
       });
       
-      logger.info('Generated sync ID, updated sync status to in_progress, and retrieved repository info', {
+      logger.info({
         projectId: id,
         syncId,
         repositoryInfo: {
@@ -158,7 +158,7 @@ export class ProjectSyncService {
           hasPath: !!repositoryInfo?.path
         },
         correlationId
-      });
+      }, 'Generated sync ID, updated sync status to in_progress, and retrieved repository info');
 
       let tempPath: string | undefined;
       let cleanupRequired = false;
@@ -167,7 +167,7 @@ export class ProjectSyncService {
       const shouldUseTemporaryClone = options.useTemporaryClone || 
         (repositoryInfo?.url && !repositoryInfo?.path);
         
-      logger.info('Temporary cloning decision made', {
+      logger.info({
         projectId: id,
         syncId,
         shouldUseTemporaryClone,
@@ -175,18 +175,18 @@ export class ProjectSyncService {
         hasRepositoryUrl: !!repositoryInfo?.url,
         hasRepositoryPath: !!repositoryInfo?.path,
         correlationId
-      });
+      }, 'Temporary cloning decision made');
 
       if (shouldUseTemporaryClone && repositoryInfo?.url) {
         const targetBranch = options.branch || repositoryInfo.branch;
         
-        logger.info('Starting temporary repository clone', {
+        logger.info({
           projectId: id,
           syncId,
           repositoryUrl: repositoryInfo.url,
           branch: targetBranch,
           correlationId
-        });
+        }, 'Starting temporary repository clone');
 
         tempPath = await this.cloneToTemporaryDirectory(
           repositoryInfo.url,
@@ -200,22 +200,22 @@ export class ProjectSyncService {
           tempPath
         });
 
-        logger.info('Repository cloned to temporary directory successfully', {
+        logger.info({
           projectId: id,
           syncId,
           tempPath,
           repositoryUrl: repositoryInfo.url,
           branch: targetBranch,
           correlationId
-        });
+        }, 'Repository cloned to temporary directory successfully');
       } else {
-        logger.info('Skipping temporary clone', {
+        logger.info({
           projectId: id,
           syncId,
           reason: shouldUseTemporaryClone ? 'No repository URL available' : 'Using existing repository path',
           repositoryPath: repositoryInfo?.path,
           correlationId
-        });
+        }, 'Skipping temporary clone');
       }
 
       // Prepare and emit domain event
@@ -234,7 +234,7 @@ export class ProjectSyncService {
          }
       };
       
-      logger.info('Emitting PROJECT_SYNC_STARTED event', {
+      logger.info({
         projectId: id,
         syncId,
         eventType: PROJECT_EVENTS.PROJECT_SYNC_STARTED,
@@ -247,13 +247,13 @@ export class ProjectSyncService {
           useTemporaryClone: event.metadata?.useTemporaryClone
         },
         correlationId
-      });
+      }, 'Emitting PROJECT_SYNC_STARTED event');
       
       eventBus.emit(PROJECT_EVENTS.PROJECT_SYNC_STARTED, event);
       
       const duration = Date.now() - startTime;
       
-      logger.info('ProjectSyncService.syncProject completed successfully', {
+      logger.info({
         projectId: id,
         syncId,
         status: 'in_progress',
@@ -261,7 +261,7 @@ export class ProjectSyncService {
         cleanupRequired,
         duration,
         correlationId
-      });
+      }, 'ProjectSyncService.syncProject completed successfully');
 
       // Return immediate response (actual sync happens asynchronously)
       return {
@@ -283,14 +283,14 @@ export class ProjectSyncService {
             errorMessage
           });
       } catch (updateError) {
-        logger.error('Failed to update sync status to error', {
+        logger.error({
           projectId: id,
           updateError: updateError instanceof Error ? updateError.message : 'Unknown error',
           correlationId
-        });
+        }, 'Failed to update sync status to error');
       }
       
-      logger.error('ProjectSyncService.syncProject failed', {
+      logger.error({
         projectId: id,
         userId,
         options,
@@ -298,7 +298,7 @@ export class ProjectSyncService {
         stack: errorStack,
         duration,
         correlationId
-      });
+      }, 'ProjectSyncService.syncProject failed');
 
       return {
         status: 'error',
@@ -332,55 +332,55 @@ export class ProjectSyncService {
     const cloneCorrelationId = correlationId || `clone-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
     
-    logger.info('Starting repository clone to temporary directory', {
+    logger.info({
       repositoryUrl,
       branch,
       correlationId: cloneCorrelationId
-    });
+    }, 'Starting repository clone to temporary directory');
     
     try {
       // Create temporary directory
-      logger.info('Creating temporary directory for repository clone', {
+      logger.info({
         repositoryUrl,
         branch,
         correlationId: cloneCorrelationId
-      });
+      }, 'Creating temporary directory for repository clone');
       
       const tempDir = await this.tempManager.createTempDirectory({
         prefix: 'hikma/hikma-sync',
         autoCleanup: false, // We'll handle cleanup manually
       });
       
-      logger.info('Temporary directory created successfully', {
+      logger.info({
         tempDir,
         repositoryUrl,
         correlationId: cloneCorrelationId
-      });
+      }, 'Temporary directory created successfully');
 
       // Verify directory exists before proceeding with clone
       const fs = await import('fs/promises');
       try {
         await fs.access(tempDir);
-        logger.info('Verified temporary directory exists', {
+        logger.info({
           tempDir,
           correlationId: cloneCorrelationId
-        });
+        }, 'Verified temporary directory exists');
       } catch (accessError) {
-        logger.error('Temporary directory does not exist or is not accessible', {
+        logger.error({
           tempDir,
           error: accessError instanceof Error ? accessError.message : 'Unknown error',
           correlationId: cloneCorrelationId
-        });
+        }, 'Temporary directory does not exist or is not accessible');
         throw new Error(`Temporary directory ${tempDir} is not accessible`);
       }
 
       // Clone repository using GitService
-      logger.info('Starting repository clone operation', {
+      logger.info({
         repositoryUrl,
         tempDir,
         branch,
         correlationId: cloneCorrelationId
-      });
+      }, 'Starting repository clone operation');
       
       await this.gitService.cloneRepository({
         repositoryUrl,
@@ -391,13 +391,13 @@ export class ProjectSyncService {
       
       const duration = Date.now() - startTime;
       
-      logger.info('Repository cloned successfully to temporary directory', {
+      logger.info({
         repositoryUrl,
         tempDir,
         branch,
         duration,
         correlationId: cloneCorrelationId
-      });
+      }, 'Repository cloned successfully to temporary directory');
 
       return tempDir;
     } catch (error) {
@@ -405,14 +405,14 @@ export class ProjectSyncService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      logger.error('Failed to clone repository to temporary directory', {
+      logger.error({
         repositoryUrl,
         branch,
         error: errorMessage,
         stack: errorStack,
         duration,
         correlationId: cloneCorrelationId
-      });
+      }, 'Failed to clone repository to temporary directory');
       throw error;
     }
   }
@@ -421,33 +421,33 @@ export class ProjectSyncService {
     const cleanupCorrelationId = correlationId || `cleanup-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
     
-    logger.info('Starting temporary directory cleanup', {
+    logger.info({
       tempPath,
       correlationId: cleanupCorrelationId
-    });
+    }, 'Starting temporary directory cleanup');
     
     try {
       await this.tempManager.removeTempDirectory(tempPath);
       
       const duration = Date.now() - startTime;
       
-      logger.info('Temporary directory cleaned up successfully', {
+      logger.info({
         tempPath,
         duration,
         correlationId: cleanupCorrelationId
-      });
+      }, 'Temporary directory cleaned up successfully');
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      logger.error('Failed to cleanup temporary directory', {
+      logger.error({
         tempPath,
         error: errorMessage,
         stack: errorStack,
         duration,
         correlationId: cleanupCorrelationId
-      });
+      }, 'Failed to cleanup temporary directory');
       // Don't throw error for cleanup failures, just log them
     }
   }

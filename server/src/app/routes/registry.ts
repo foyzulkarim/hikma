@@ -105,6 +105,13 @@ export class RouteRegistry {
         prefix: '/api/v1/projects',
         requiresAuth: true,
         exportName: 'projectRoutes'
+      },
+      {
+        name: 'knowledge',
+        path: 'src/knowledge/api/knowledge.routes.ts',
+        prefix: '/api/v1/knowledge',
+        requiresAuth: true,
+        exportName: 'knowledgeRoutes'
       }      
     ];
 

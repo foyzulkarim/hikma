@@ -1,4 +1,5 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
+import { DocumentChunk } from '@prisma/client';
 import { logger } from '@/core/utils/logger';
 
 // Qdrant Configuration
@@ -129,6 +130,34 @@ export class VectorDbManager {
   public getCollectionName(): string {
     return this.collectionName;
   }
+}
+
+// Chunk payload interface for Qdrant
+export interface ChunkPayload {
+  chunk_id: string;
+  content: string;
+  document_id: string;
+  project_id?: string;
+  chunk_index: number;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
+
+// Chunk search result interface
+export interface ChunkSearchResult {
+  id: string;
+  score: number;
+  payload: ChunkPayload;
+  vector?: number[];
+}
+
+// Chunk search response interface
+export interface ChunkSearchResponse {
+  results: ChunkSearchResult[];
+  total: number;
+  query_time: number;
 }
 
 // Vector operations service
@@ -418,7 +447,153 @@ export class VectorService {
         'Vector updated successfully'
       );
     } catch (error) {
-      logger.error({ error, id, options }, 'Failed to update vector');
+      logger.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          id,
+          namespace: options?.namespace || 'default',
+        },
+        'Failed to update vector'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Upsert a document chunk with its embedding to Qdrant
+   */
+  async upsertChunk(
+    chunk: DocumentChunk,
+    embedding: number[],
+    projectId?: string
+  ): Promise<void> {
+    try {
+      const payload: ChunkPayload = {
+        chunk_id: chunk.id,
+        content: chunk.content,
+        document_id: chunk.documentId,
+        project_id: projectId,
+        chunk_index: chunk.chunkIndex,
+        metadata: chunk.metadata as Record<string, any> || {},
+        created_at: chunk.createdAt.toISOString(),
+        updated_at: chunk.updatedAt.toISOString(),
+      };
+
+      await this.qdrant.upsert(this.collectionName, {
+        wait: true,
+        points: [
+          {
+            id: chunk.id,
+            vector: embedding,
+            payload,
+          },
+        ],
+      });
+
+      logger.debug(
+        {
+          chunkId: chunk.id,
+          documentId: chunk.documentId,
+          projectId,
+          embeddingSize: embedding.length,
+        },
+        'Chunk upserted to Qdrant successfully'
+      );
+    } catch (error) {
+      logger.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          chunkId: chunk.id,
+          documentId: chunk.documentId,
+        },
+        'Failed to upsert chunk to Qdrant'
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Search for similar chunks using semantic search
+   */
+  async searchChunks(
+    queryEmbedding: number[],
+    options: {
+      limit?: number;
+      projectId?: string;
+      documentId?: string;
+      scoreThreshold?: number;
+      filter?: Record<string, any>;
+    } = {}
+  ): Promise<ChunkSearchResponse> {
+    const startTime = Date.now();
+    
+    try {
+      const {
+        limit = 10,
+        projectId,
+        documentId,
+        scoreThreshold = 0.7,
+        filter = {},
+      } = options;
+
+      // Build filter conditions
+      const searchFilter: Record<string, any> = { ...filter };
+      
+      if (projectId) {
+        searchFilter.project_id = projectId;
+      }
+      
+      if (documentId) {
+        searchFilter.document_id = documentId;
+      }
+
+      const searchResult = await this.qdrant.search(this.collectionName, {
+        vector: queryEmbedding,
+        limit,
+        filter: Object.keys(searchFilter).length > 0 ? {
+          must: Object.entries(searchFilter).map(([key, value]) => ({
+            key,
+            match: { value },
+          })),
+        } : undefined,
+        score_threshold: scoreThreshold,
+        with_payload: true,
+        with_vector: false,
+      });
+
+      const results: ChunkSearchResult[] = searchResult.map((result: any) => ({
+        id: result.id,
+        score: result.score,
+        payload: result.payload as ChunkPayload,
+      }));
+
+      const queryTime = Date.now() - startTime;
+
+      logger.debug(
+        {
+          queryTime,
+          resultsCount: results.length,
+          projectId,
+          documentId,
+          scoreThreshold,
+        },
+        'Chunk search completed'
+      );
+
+      return {
+        results,
+        total: results.length,
+        query_time: queryTime,
+      };
+    } catch (error) {
+      logger.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          projectId: options.projectId,
+          documentId: options.documentId,
+        },
+        'Failed to search chunks'
+      );
       throw error;
     }
   }

@@ -7,7 +7,7 @@ const qdrantConfig = {
   url: process.env.QDRANT_URL || 'http://localhost:6333',
   apiKey: process.env.QDRANT_API_KEY || '',
   collectionName: process.env.QDRANT_COLLECTION_NAME || 'hikma-embeddings',
-  dimension: parseInt(process.env.QDRANT_DIMENSION || '1536', 10), // OpenAI text-embedding-3-small
+  dimension: parseInt(process.env.QDRANT_DIMENSION || '768', 10), // LM Studio nomic-embed-text dimensions
   distance: process.env.QDRANT_DISTANCE || 'Cosine', // Cosine, Euclidean, Dot
   maxRetries: parseInt(process.env.QDRANT_MAX_RETRIES || '3', 10),
   retryDelayMs: parseInt(process.env.QDRANT_RETRY_DELAY || '1000', 10),

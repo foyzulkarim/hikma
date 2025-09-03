@@ -11,8 +11,8 @@ export interface EmbeddingServiceConfig {
 }
 
 const defaultConfig: EmbeddingServiceConfig = {
-  model: EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
-  batchSize: 100,
+  model: EmbeddingModel.LM_STUDIO_EMBEDDING,
+  batchSize: 50, // Reduced batch size for local LM Studio
   maxRetries: 3,
   retryDelayMs: 1000,
 };
@@ -199,8 +199,10 @@ export class EmbeddingService {
         return 3072;
       case EmbeddingModel.OPENAI_TEXT_EMBEDDING_ADA_002:
         return 1536;
+      case EmbeddingModel.LM_STUDIO_EMBEDDING:
+        return 768; // Nomic embed text model dimensions
       default:
-        return 1536;
+        return 768; // Default to LM Studio dimensions
     }
   }
 

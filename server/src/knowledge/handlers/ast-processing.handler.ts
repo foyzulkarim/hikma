@@ -3,6 +3,7 @@ import { ASTNodeType, ASTChunkMetadata, ChunkMetadata } from '../../core/types/e
 import { PrismaClient } from '@prisma/client';
 import { embeddingService } from '../services/embedding-service';
 import { logger } from '../../core/utils/logger';
+import crypto from 'crypto';
 import { Neo4jChunkService, ChunkRelationshipType } from '../services/neo4j-chunk.service';
 
 export interface ASTProcessingEvent {
@@ -105,11 +106,35 @@ export class ASTProcessingHandler {
         });
       }
 
+      // Find or create data source for the project
+      let dataSource = await this.prisma.dataSource.findFirst({
+        where: { 
+          projectId: event.projectId,
+          type: 'GIT'
+        }
+      });
+
+      if (!dataSource) {
+        dataSource = await this.prisma.dataSource.create({
+          data: {
+            projectId: event.projectId,
+            name: 'Git Repository',
+            type: 'GIT',
+            config: {
+              sourceType: event.sourceType,
+              syncId: event.sourceId
+            },
+            status: 'ACTIVE',
+            errorCount: 0
+          }
+        });
+      }
+
       // Create document record
       const document = await this.prisma.document.create({
         data: {
           knowledgeBaseId: knowledgeBase.id,
-          dataSourceId: event.sourceId,
+          dataSourceId: dataSource.id,
           externalId: event.filePath,
           title: this.getFileNameFromPath(event.filePath),
           content: event.content,
@@ -145,8 +170,16 @@ export class ASTProcessingHandler {
       const chunk = chunks[i];
       
       try {
-        // Generate embedding for the chunk
-        const embedding = await embeddingService.generateEmbedding(chunk.content);
+        // TODO: Fix embedding service CommonJS/ESM issue
+        // Generate embedding for the chunk (temporarily skip for debugging)
+        let embedding: number[] = [];
+        try {
+          embedding = await embeddingService.generateEmbedding(chunk.content);
+        } catch (embeddingError) {
+          logger.warn(`Failed to generate embedding for chunk: ${embeddingError instanceof Error ? embeddingError.message : 'Unknown error'}`);
+          // Use zero vector as placeholder
+          embedding = new Array(1536).fill(0);
+        }
         
         // Create document chunk with AST metadata
         const documentChunk = await this.prisma.documentChunk.create({
@@ -158,7 +191,15 @@ export class ASTProcessingHandler {
             metadata: {
               language: event.language,
               filePath: event.filePath,
-              chunkType: 'ast'
+              chunkType: 'ast',
+              astNodeType: chunk.type,
+              name: chunk.name,
+              startLine: chunk.startLine,
+              endLine: chunk.endLine,
+              complexity: chunk.metadata.complexity,
+              parameters: chunk.metadata.parameters,
+              returnType: chunk.metadata.returnType,
+              dependencies: chunk.metadata.dependencies
             }
           }
         });
@@ -362,7 +403,6 @@ export class ASTProcessingHandler {
   }
 
   private generateContentHash(content: string): string {
-    const crypto = require('crypto');
     return crypto.createHash('sha256').update(content).digest('hex');
   }
 

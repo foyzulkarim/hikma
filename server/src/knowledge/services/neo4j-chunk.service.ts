@@ -83,58 +83,46 @@ export class Neo4jChunkService {
    */
   async createChunkNode(chunk: Neo4jChunkNode): Promise<string> {
     try {
-      const cypher = `
-        CREATE (c:Chunk {
-          id: $id,
-          chunkId: $chunkId,
-          documentId: $documentId,
-          projectId: $projectId,
-          content: $content,
-          filePath: $filePath,
-          language: $language,
-          astNodeType: $astNodeType,
-          functionName: $functionName,
-          className: $className,
-          methodName: $methodName,
-          parameters: $parameters,
-          returnType: $returnType,
-          visibility: $visibility,
-          isStatic: $isStatic,
-          isAsync: $isAsync,
-          complexity: $complexity,
-          dependencies: $dependencies,
-          startLine: $startLine,
-          endLine: $endLine,
-          createdAt: $createdAt,
-          updatedAt: $updatedAt
-        })
-        RETURN c.id as nodeId
-      `;
-
-      const result = await this.graphService.executeWriteTransaction(cypher, {
+      // Filter out null/undefined values to avoid Neo4j parameter errors
+      const properties: Record<string, any> = {
         id: chunk.id,
         chunkId: chunk.chunkId,
         documentId: chunk.documentId,
         projectId: chunk.projectId,
         content: chunk.content,
         filePath: chunk.filePath,
-        language: chunk.language,
-        astNodeType: chunk.astNodeType,
-        functionName: chunk.functionName,
-        className: chunk.className,
-        methodName: chunk.methodName,
-        parameters: chunk.parameters || [],
-        returnType: chunk.returnType,
-        visibility: chunk.visibility,
-        isStatic: chunk.isStatic || false,
-        isAsync: chunk.isAsync || false,
-        complexity: chunk.complexity,
-        dependencies: chunk.dependencies || [],
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
         createdAt: chunk.createdAt.toISOString(),
         updatedAt: chunk.updatedAt.toISOString()
-      });
+      };
+
+      // Add optional properties only if they have values
+      if (chunk.language != null) properties.language = chunk.language;
+      if (chunk.astNodeType != null) properties.astNodeType = chunk.astNodeType;
+      if (chunk.functionName != null) properties.functionName = chunk.functionName;
+      if (chunk.className != null) properties.className = chunk.className;
+      if (chunk.methodName != null) properties.methodName = chunk.methodName;
+      if (chunk.parameters != null) properties.parameters = chunk.parameters;
+      if (chunk.returnType != null) properties.returnType = chunk.returnType;
+      if (chunk.visibility != null) properties.visibility = chunk.visibility;
+      if (chunk.isStatic != null) properties.isStatic = chunk.isStatic;
+      if (chunk.isAsync != null) properties.isAsync = chunk.isAsync;
+      if (chunk.complexity != null) properties.complexity = chunk.complexity;
+      if (chunk.dependencies != null) properties.dependencies = chunk.dependencies;
+      if (chunk.startLine != null) properties.startLine = chunk.startLine;
+      if (chunk.endLine != null) properties.endLine = chunk.endLine;
+
+      // Build dynamic Cypher query with only the properties that have values
+      const propertyKeys = Object.keys(properties);
+      const propertyAssignments = propertyKeys.map(key => `${key}: $${key}`).join(',\n          ');
+      
+      const cypher = `
+        CREATE (c:Chunk {
+          ${propertyAssignments}
+        })
+        RETURN c.id as nodeId
+      `;
+
+      const result = await this.graphService.executeWriteTransaction(cypher, properties);
 
       const nodeId = result[0]?.nodeId;
       if (!nodeId) {
@@ -171,6 +159,20 @@ export class Neo4jChunkService {
       if (error && typeof error === 'object' && 'code' in error) {
         const neo4jError = error as { code: string; message: string };
         
+        if (neo4jError.code === 'Neo.ClientError.Security.Unauthorized') {
+          throw ErrorFactory.neo4jConnection(
+            'Neo4j authentication failed',
+            { code: neo4jError.code, message: neo4jError.message }
+          );
+        }
+        
+        if (neo4jError.code.startsWith('Neo.ClientError.Statement')) {
+          throw ErrorFactory.neo4jQuery(
+            `Neo4j query error: ${neo4jError.message}`,
+            { code: neo4jError.code, chunkId: chunk.chunkId }
+          );
+        }
+        
         if (neo4jError.code?.startsWith('Neo.ClientError.Schema')) {
           throw ErrorFactory.neo4jConstraint(
             `Constraint violation: ${neo4jError.message}`,
@@ -203,63 +205,53 @@ export class Neo4jChunkService {
     }
 
     try {
+      // Filter out null/undefined values for each chunk to avoid Neo4j parameter errors
+      const chunkData = chunks.map(chunk => {
+        const properties: Record<string, any> = {
+          id: chunk.id,
+          chunkId: chunk.chunkId,
+          documentId: chunk.documentId,
+          projectId: chunk.projectId,
+          content: chunk.content,
+          filePath: chunk.filePath,
+          createdAt: chunk.createdAt.toISOString(),
+          updatedAt: chunk.updatedAt.toISOString()
+        };
+
+        // Add optional properties only if they have values
+        if (chunk.language != null) properties.language = chunk.language;
+        if (chunk.astNodeType != null) properties.astNodeType = chunk.astNodeType;
+        if (chunk.functionName != null) properties.functionName = chunk.functionName;
+        if (chunk.className != null) properties.className = chunk.className;
+        if (chunk.methodName != null) properties.methodName = chunk.methodName;
+        if (chunk.parameters != null) properties.parameters = chunk.parameters;
+        if (chunk.returnType != null) properties.returnType = chunk.returnType;
+        if (chunk.visibility != null) properties.visibility = chunk.visibility;
+        if (chunk.isStatic != null) properties.isStatic = chunk.isStatic;
+        if (chunk.isAsync != null) properties.isAsync = chunk.isAsync;
+        if (chunk.complexity != null) properties.complexity = chunk.complexity;
+        if (chunk.dependencies != null) properties.dependencies = chunk.dependencies;
+        if (chunk.startLine != null) properties.startLine = chunk.startLine;
+        if (chunk.endLine != null) properties.endLine = chunk.endLine;
+
+        return properties;
+      });
+
+      // Build dynamic Cypher query with only the properties that have values
+      // Use the first chunk to determine which properties to include
+      const sampleChunk = chunkData[0];
+      const propertyKeys = Object.keys(sampleChunk);
+      const propertyAssignments = propertyKeys.map(key => `${key}: chunkData.${key}`).join(',\n          ');
+      
       const cypher = `
         UNWIND $chunks as chunkData
         CREATE (c:Chunk {
-          id: chunkData.id,
-          chunkId: chunkData.chunkId,
-          documentId: chunkData.documentId,
-          projectId: chunkData.projectId,
-          content: chunkData.content,
-          filePath: chunkData.filePath,
-          language: chunkData.language,
-          astNodeType: chunkData.astNodeType,
-          functionName: chunkData.functionName,
-          className: chunkData.className,
-          methodName: chunkData.methodName,
-          parameters: chunkData.parameters,
-          returnType: chunkData.returnType,
-          visibility: chunkData.visibility,
-          isStatic: chunkData.isStatic,
-          isAsync: chunkData.isAsync,
-          complexity: chunkData.complexity,
-          dependencies: chunkData.dependencies,
-          startLine: chunkData.startLine,
-          endLine: chunkData.endLine,
-          createdAt: chunkData.createdAt,
-          updatedAt: chunkData.updatedAt
+          ${propertyAssignments}
         })
         RETURN c.id as nodeId
       `;
 
-      const chunkData = chunks.map(chunk => ({
-        id: chunk.id,
-        chunkId: chunk.chunkId,
-        documentId: chunk.documentId,
-        projectId: chunk.projectId,
-        content: chunk.content,
-        filePath: chunk.filePath,
-        language: chunk.language,
-        astNodeType: chunk.astNodeType,
-        functionName: chunk.functionName,
-        className: chunk.className,
-        methodName: chunk.methodName,
-        parameters: chunk.parameters || [],
-        returnType: chunk.returnType,
-        visibility: chunk.visibility,
-        isStatic: chunk.isStatic || false,
-        isAsync: chunk.isAsync || false,
-        complexity: chunk.complexity,
-        dependencies: chunk.dependencies || [],
-        startLine: chunk.startLine,
-        endLine: chunk.endLine,
-        createdAt: chunk.createdAt.toISOString(),
-        updatedAt: chunk.updatedAt.toISOString()
-      }));
-
-      const result = await this.graphService.executeWriteTransaction(cypher, {
-        chunks: chunkData
-      });
+      const result = await this.graphService.executeWriteTransaction(cypher, { chunks: chunkData });
 
       const nodeIds = result.map(record => record.nodeId);
 

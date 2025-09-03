@@ -35,7 +35,7 @@ export class ProjectSyncService {
   }
 
   async syncProject(id: string, userId: string, options: SyncOptions = {}): Promise<ProjectSyncResult> {
-    const correlationId = `sync-service-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const correlationId = `sync-service-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const startTime = Date.now();
     
     logger.info({
@@ -329,7 +329,7 @@ export class ProjectSyncService {
   }
 
   private async cloneToTemporaryDirectory(repositoryUrl: string, branch?: string, correlationId?: string): Promise<string> {
-    const cloneCorrelationId = correlationId || `clone-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const cloneCorrelationId = correlationId || `clone-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const startTime = Date.now();
     
     logger.info({
@@ -339,23 +339,20 @@ export class ProjectSyncService {
     }, 'Starting repository clone to temporary directory');
     
     try {
-      // Create temporary directory
+      // Create organized repository directory
       logger.info({
         repositoryUrl,
         branch,
         correlationId: cloneCorrelationId
-      }, 'Creating temporary directory for repository clone');
+      }, 'Creating organized repository directory');
       
-      const tempDir = await this.tempManager.createTempDirectory({
-        prefix: 'hikma/hikma-sync',
-        autoCleanup: false, // We'll handle cleanup manually
-      });
+      const tempDir = await this.createOrganizedRepoDirectory(repositoryUrl);
       
       logger.info({
         tempDir,
         repositoryUrl,
         correlationId: cloneCorrelationId
-      }, 'Temporary directory created successfully');
+      }, 'Repository directory created successfully');
 
       // Verify directory exists before proceeding with clone
       const fs = await import('fs/promises');
@@ -417,17 +414,75 @@ export class ProjectSyncService {
     }
   }
 
+  private async createOrganizedRepoDirectory(repositoryUrl: string): Promise<string> {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const os = await import('os');
+
+    // Extract repo name from URL
+    const repoName = this.extractRepoNameFromUrl(repositoryUrl);
+    
+    // Create organized path: ~/.hikma/repositories/{repo-name}
+    const homeDir = os.homedir();
+    const hikmaDir = path.join(homeDir, '.hikma', 'repositories');
+    const repoDir = path.join(hikmaDir, repoName);
+
+    // Create directories if they don't exist
+    await fs.mkdir(hikmaDir, { recursive: true });
+    
+    // Clean existing directory if it exists
+    try {
+      await fs.rm(repoDir, { recursive: true, force: true });
+      logger.info({ repoDir }, 'Cleaned existing repository directory');
+    } catch (error) {
+      // Directory doesn't exist, which is fine
+    }
+    
+    // Create fresh directory
+    await fs.mkdir(repoDir, { recursive: true });
+    
+    logger.info({ 
+      repositoryUrl, 
+      repoName, 
+      repoDir 
+    }, 'Created organized repository directory');
+
+    return repoDir;
+  }
+
+  private extractRepoNameFromUrl(repositoryUrl: string): string {
+    // Extract repo name from various URL formats:
+    // https://github.com/owner/repo.git -> repo
+    // https://github.com/owner/repo -> repo
+    // git@github.com:owner/repo.git -> repo
+    
+    const urlWithoutGit = repositoryUrl.replace(/\.git$/, '');
+    const parts = urlWithoutGit.split('/');
+    const repoName = parts[parts.length - 1];
+    
+    // Clean repo name (remove special characters, keep alphanumeric and hyphens)
+    return repoName.replace(/[^a-zA-Z0-9\-_]/g, '-').toLowerCase();
+  }
+
   async cleanupTemporaryDirectory(tempPath: string, correlationId?: string): Promise<void> {
-    const cleanupCorrelationId = correlationId || `cleanup-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const cleanupCorrelationId = correlationId || `cleanup-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const startTime = Date.now();
     
     logger.info({
       tempPath,
       correlationId: cleanupCorrelationId
-    }, 'Starting temporary directory cleanup');
+    }, 'Starting repository directory cleanup');
     
     try {
-      await this.tempManager.removeTempDirectory(tempPath);
+      const fs = await import('fs/promises');
+      
+      // Only cleanup if it's in our organized structure
+      if (tempPath.includes('.hikma/repositories')) {
+        await fs.rm(tempPath, { recursive: true, force: true });
+      } else {
+        // Fallback to temp manager for other paths
+        await this.tempManager.removeTempDirectory(tempPath);
+      }
       
       const duration = Date.now() - startTime;
       
@@ -435,7 +490,7 @@ export class ProjectSyncService {
         tempPath,
         duration,
         correlationId: cleanupCorrelationId
-      }, 'Temporary directory cleaned up successfully');
+      }, 'Repository directory cleaned up successfully');
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -447,7 +502,7 @@ export class ProjectSyncService {
         stack: errorStack,
         duration,
         correlationId: cleanupCorrelationId
-      }, 'Failed to cleanup temporary directory');
+      }, 'Failed to cleanup repository directory');
       // Don't throw error for cleanup failures, just log them
     }
   }

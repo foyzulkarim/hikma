@@ -3,6 +3,7 @@ export enum EmbeddingModel {
   OPENAI_TEXT_EMBEDDING_ADA_002 = 'text-embedding-ada-002',
   OPENAI_TEXT_EMBEDDING_3_SMALL = 'text-embedding-3-small',
   OPENAI_TEXT_EMBEDDING_3_LARGE = 'text-embedding-3-large',
+  LM_STUDIO_EMBEDDING = 'text-embedding-nomic-embed-text',
 }
 
 // Vector store types

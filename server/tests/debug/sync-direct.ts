@@ -8,7 +8,7 @@ import { ProjectSyncService } from '../../src/domains/projects/services/project-
 import { ProjectRepository } from '../../src/domains/projects/repositories/project.repository';
 import { PrismaClient } from '@prisma/client';
 
-const DEFAULT_USER_ID = 'user123';
+const DEFAULT_USER_ID = 'cmf30k5430001dysh7wb84z0q'; // Valid user with OWNER access
 
 async function syncProjectDirect(projectId: string) {
   const prisma = new PrismaClient();

@@ -8,6 +8,7 @@ import { TempDirectoryManager } from '@/shared/utils/temp-directory.util';
 import { logger } from '@/core/utils/logger';
 import { ValidationError, ExternalServiceError } from '@/core/errors/app-error';
 import { ASTProcessingHandler } from '@/knowledge/handlers/ast-processing.handler';
+import { chunkSyncService } from '@/knowledge/services/chunk-sync.service';
 
 export interface ProjectSyncResult {
   status: 'success' | 'error' | 'in_progress';
@@ -231,6 +232,43 @@ export class ProjectSyncService {
         await this.processRepositoryFiles(id, repositoryInfo.path, correlationId);
       } else {
         logger.warn({ projectId: id, correlationId }, 'No repository path available for AST processing');
+      }
+
+      // AUTOMATIC QDRANT SYNC: Sync processed chunks to Qdrant vector database
+      logger.info({ projectId: id, correlationId }, 'Starting automatic Qdrant sync');
+      try {
+        const syncResult = await chunkSyncService.syncChunksToQdrant({
+          projectId: id,
+          skipExisting: false,
+          batchSize: 10
+        });
+        
+        logger.info({
+          projectId: id,
+          syncResult: {
+            processed: syncResult.processed,
+            successful: syncResult.successful,
+            failed: syncResult.failed,
+            duration: syncResult.duration
+          },
+          correlationId
+        }, 'Qdrant sync completed successfully');
+        
+        if (syncResult.failed > 0) {
+          logger.warn({
+            projectId: id,
+            failedCount: syncResult.failed,
+            errors: syncResult.errors,
+            correlationId
+          }, 'Some chunks failed to sync to Qdrant');
+        }
+      } catch (qdrantError) {
+        logger.error({
+          projectId: id,
+          error: qdrantError instanceof Error ? qdrantError.message : 'Unknown error',
+          correlationId
+        }, 'Qdrant sync failed - continuing with sync process');
+        // Don't throw here - Qdrant sync failure shouldn't stop the entire sync process
       }
 
       // Prepare and emit domain event

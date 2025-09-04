@@ -1,5 +1,5 @@
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
-import { logger } from '@/core/utils/logger';
+import { logger } from '../core/utils/logger';
 
 // Neo4j Configuration
 const neo4jConfig = {
@@ -297,6 +297,184 @@ export class GraphService {
     
     const result = await this.executeReadTransaction(cypher, {}, database);
     return result[0]?.count || 0;
+  }
+
+  // Chunk-specific query methods
+  async findChunksByContent(
+    searchText: string,
+    limit: number = 10,
+    database?: string
+  ): Promise<any[]> {
+    const cypher = `
+      MATCH (c:Chunk)
+      WHERE c.content CONTAINS $searchText
+      RETURN c, c.similarity
+      ORDER BY c.similarity DESC
+      LIMIT $limit
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { searchText, limit }, 
+      database
+    );
+  }
+
+  async findRelatedChunks(
+    chunkId: string,
+    relationshipTypes: string[] = [],
+    maxDepth: number = 2,
+    limit: number = 20,
+    database?: string
+  ): Promise<any[]> {
+    const relationshipFilter = relationshipTypes.length > 0 
+      ? `[${relationshipTypes.map(type => `'${type}'`).join('|')}]`
+      : '';
+    
+    const cypher = `
+      MATCH (start:Chunk {id: $chunkId})
+      MATCH path = (start)-[r${relationshipFilter}*1..${maxDepth}]-(related:Chunk)
+      WHERE start <> related
+      RETURN DISTINCT related, 
+             length(path) as distance,
+             [rel in relationships(path) | type(rel)] as relationshipPath
+      ORDER BY distance ASC, related.similarity DESC
+      LIMIT $limit
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { chunkId, limit }, 
+      database
+    );
+  }
+
+  async findChunksByFunction(
+    functionName: string,
+    limit: number = 10,
+    database?: string
+  ): Promise<any[]> {
+    const cypher = `
+      MATCH (c:Chunk)
+      WHERE c.functionName = $functionName OR c.content CONTAINS $functionName
+      RETURN c
+      ORDER BY c.startLine ASC
+      LIMIT $limit
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { functionName, limit }, 
+      database
+    );
+  }
+
+  async findChunksByFile(
+    filePath: string,
+    limit: number = 50,
+    database?: string
+  ): Promise<any[]> {
+    const cypher = `
+      MATCH (c:Chunk)
+      WHERE c.filePath = $filePath
+      RETURN c
+      ORDER BY c.startLine ASC
+      LIMIT $limit
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { filePath, limit }, 
+      database
+    );
+  }
+
+  async getChunkCallGraph(
+    chunkId: string,
+    maxDepth: number = 3,
+    database?: string
+  ): Promise<any[]> {
+    const cypher = `
+      MATCH (start:Chunk {id: $chunkId})
+      MATCH path = (start)-[:CALLS*1..${maxDepth}]->(called:Chunk)
+      RETURN path,
+             nodes(path) as chunks,
+             relationships(path) as calls,
+             length(path) as depth
+      ORDER BY depth ASC
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { chunkId }, 
+      database
+    );
+  }
+
+  async getChunkDependencies(
+    chunkId: string,
+    includeTransitive: boolean = false,
+    database?: string
+  ): Promise<any[]> {
+    const maxDepth = includeTransitive ? 5 : 1;
+    const cypher = `
+      MATCH (start:Chunk {id: $chunkId})
+      MATCH (start)-[r:IMPORTS|CALLS|EXTENDS|IMPLEMENTS*1..${maxDepth}]->(dep:Chunk)
+      RETURN DISTINCT dep,
+             [rel in r | type(rel)] as dependencyTypes,
+             length(r) as distance
+      ORDER BY distance ASC, dep.filePath ASC
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { chunkId }, 
+      database
+    );
+  }
+
+  async findSimilarChunks(
+    embedding: number[],
+    threshold: number = 0.8,
+    limit: number = 10,
+    database?: string
+  ): Promise<any[]> {
+    // Note: This requires vector similarity search capability in Neo4j
+    // For now, we'll use a placeholder that can be enhanced with vector indexes
+    const cypher = `
+      MATCH (c:Chunk)
+      WHERE c.embedding IS NOT NULL
+      WITH c, 
+           gds.similarity.cosine(c.embedding, $embedding) AS similarity
+      WHERE similarity >= $threshold
+      RETURN c, similarity
+      ORDER BY similarity DESC
+      LIMIT $limit
+    `;
+    
+    return await this.executeReadTransaction(
+      cypher, 
+      { embedding, threshold, limit }, 
+      database
+    );
+  }
+
+  async getChunkStatistics(database?: string): Promise<any> {
+    const cypher = `
+      MATCH (c:Chunk)
+      OPTIONAL MATCH (c)-[r]-()
+      RETURN {
+        totalChunks: count(DISTINCT c),
+        totalRelationships: count(r) / 2,
+        avgRelationshipsPerChunk: count(r) * 1.0 / count(DISTINCT c),
+        fileCount: count(DISTINCT c.filePath),
+        functionCount: count(DISTINCT c.functionName),
+        relationshipTypes: collect(DISTINCT type(r))
+      } as stats
+    `;
+    
+    const result = await this.executeReadTransaction(cypher, {}, database);
+    return result[0]?.stats || {};
   }
 }
 

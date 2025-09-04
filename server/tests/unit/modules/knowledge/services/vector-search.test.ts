@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { VectorSearchService } from '@/modules/knowledge/services/vector-search.js';
-import { embeddingService } from '@/modules/knowledge/services/embedding-service.js';
-import { vectorDbManager } from '@/config/vector-db.js';
-import { EmbeddingModel, VectorSearchQuery } from '@/core/types/embeddings.js';
-import { ValidationError } from '@/core/errors/app-error.js';
+import { VectorSearchService } from '@/knowledge/services/vector-search';
+import { embeddingService } from '@/knowledge/services/embedding.service';
+import { vectorDbManager } from '@/config/vector-db';
+import { EmbeddingModel, VectorSearchQuery } from '@/core/types/embeddings';
+import { ValidationError } from '@/core/errors/app-error';
 
-// Mock external dependencies
-vi.mock('@/modules/knowledge/services/embedding-service.js', () => ({
+// Mock the embedding service
+vi.mock('@/knowledge/services/embedding.service', () => ({
   embeddingService: {
     generateEmbedding: vi.fn(() => Promise.resolve([0.1, 0.2, 0.3])),
     generateEmbeddings: vi.fn(() => Promise.resolve({
@@ -17,7 +17,7 @@ vi.mock('@/modules/knowledge/services/embedding-service.js', () => ({
   },
 }));
 
-vi.mock('@/config/vector-db.js', () => ({
+vi.mock('@/config/vector-db', () => ({
   vectorDbManager: {
     vectorService: {
       query: vi.fn(),
@@ -52,7 +52,7 @@ describe('VectorSearchService', () => {
 
       const result = await vectorSearchService.searchByText('test query');
 
-      expect(embeddingService.generateEmbedding).toHaveBeenCalledWith('test query', EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL);
+      expect(embeddingService.generateEmbedding).toHaveBeenCalledWith('test query', EmbeddingModel.OLLAMA_EMBEDDING);
       expect(vectorDbManager.vectorService.query).toHaveBeenCalled();
       expect(result.results).toHaveLength(1);
       expect(result.results[0].score).toBeGreaterThan(0);

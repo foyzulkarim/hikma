@@ -5,7 +5,7 @@ import { VectorStoreType } from '@/core/types/embeddings';
 import type { IEmbeddingService, IVectorStore, IDocumentProcessor, IVectorSearchService, VectorStoreConfig } from '@/core/types/embeddings';
 
 // Re-export services
-import { embeddingService } from './embedding-service';
+import { embeddingService } from './embedding.service';
 export { embeddingService };
 export { QdrantVectorStore } from './vector-store';
 export { DocumentProcessor } from './document-processor';

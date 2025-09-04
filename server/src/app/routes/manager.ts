@@ -25,7 +25,8 @@ export class RouteManager {
       ],
       privateRoutes: [
         'query',
-        'projects'
+        'projects',
+        'knowledge'
       ]
     });
   }

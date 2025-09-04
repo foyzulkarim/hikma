@@ -17,7 +17,18 @@ const openaiConfig = {
 const ollamaConfig = {
   baseURL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   model: process.env.OLLAMA_MODEL || 'llama2',
+  embeddingModel: process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text',
   timeout: parseInt(process.env.OLLAMA_TIMEOUT || '120000', 10),
+  maxRetries: parseInt(process.env.OLLAMA_MAX_RETRIES || '3', 10),
+};
+
+// LM Studio Configuration
+const lmStudioConfig = {
+  baseURL: process.env.LM_STUDIO_BASE_URL || 'http://localhost:1234',
+  apiKey: process.env.LM_STUDIO_API_KEY || 'lm-studio',
+  embeddingModel: process.env.LM_STUDIO_EMBEDDING_MODEL || 'text-embedding-nomic-embed-text-v1.5',
+  timeout: parseInt(process.env.LM_STUDIO_TIMEOUT || '60000', 10),
+  maxRetries: parseInt(process.env.LM_STUDIO_MAX_RETRIES || '3', 10),
 };
 
 // Create OpenAI client
@@ -28,8 +39,16 @@ export const openai = new OpenAI({
   maxRetries: openaiConfig.maxRetries,
 });
 
+// Create LM Studio client (OpenAI-compatible)
+export const lmStudio = new OpenAI({
+  apiKey: lmStudioConfig.apiKey,
+  baseURL: lmStudioConfig.baseURL + '/v1',
+  timeout: lmStudioConfig.timeout,
+  maxRetries: lmStudioConfig.maxRetries,
+});
+
 // LLM Provider types
-export type LLMProvider = 'openai' | 'ollama';
+export type LLMProvider = 'openai' | 'ollama' | 'lm-studio';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'function';
@@ -62,11 +81,13 @@ export interface LLMEmbeddingOptions {
 export class LLMManager {
   private static instance: LLMManager;
   private openaiClient: OpenAI;
+  private lmStudioClient: OpenAI;
   private isConnected = false;
   private provider: LLMProvider = 'openai';
 
   private constructor() {
     this.openaiClient = openai;
+    this.lmStudioClient = lmStudio;
   }
 
   public static getInstance(): LLMManager {
@@ -78,6 +99,17 @@ export class LLMManager {
 
   public async connect(): Promise<void> {
     try {
+      // Try LM Studio first (for embeddings)
+      try {
+        await this.testLMStudioConnection();
+        this.provider = 'lm-studio';
+        this.isConnected = true;
+        logger.info('LM Studio LLM connected successfully');
+        return;
+      } catch (lmError) {
+        logger.debug({ error: lmError }, 'LM Studio connection failed, trying OpenAI');
+      }
+
       // Test OpenAI connection
       if (openaiConfig.apiKey) {
         await this.testOpenAIConnection();
@@ -116,6 +148,22 @@ export class LLMManager {
     }
   }
 
+  private async testLMStudioConnection(): Promise<void> {
+    try {
+      // Test LM Studio connection with embeddings endpoint
+      const response = await this.lmStudioClient.embeddings.create({
+        model: lmStudioConfig.embeddingModel,
+        input: 'test',
+      });
+      
+      if (!response.data || !response.data[0]?.embedding) {
+        throw new Error('LM Studio embedding test failed');
+      }
+    } catch (error) {
+      throw new Error(`Failed to connect to LM Studio: ${error}`);
+    }
+  }
+
   public async disconnect(): Promise<void> {
     try {
       this.isConnected = false;
@@ -150,17 +198,29 @@ export class LLMManager {
   }
 
   public getClient(): OpenAI {
-    return this.openaiClient;
+    switch (this.provider) {
+      case 'lm-studio':
+        return this.lmStudioClient;
+      case 'openai':
+      default:
+        return this.openaiClient;
+    }
+  }
+
+  public getLMStudioClient(): OpenAI {
+    return this.lmStudioClient;
   }
 }
 
 // LLM Service
 export class LLMService {
   private openaiClient: OpenAI;
+  private lmStudioClient: OpenAI;
   private provider: LLMProvider;
 
   constructor() {
-    this.openaiClient = openai;
+    this.openaiClient = llmManager.getClient();
+    this.lmStudioClient = llmManager.getLMStudioClient();
     this.provider = llmManager.getProvider();
   }
 
@@ -271,38 +331,121 @@ export class LLMService {
     options: LLMEmbeddingOptions = {}
   ): Promise<number[]> {
     try {
-      if (this.provider !== 'openai') {
-        throw new Error('Embeddings are only supported with OpenAI provider');
+      if (this.provider === 'lm-studio') {
+        return this.generateLMStudioEmbedding(text, options);
+      } else if (this.provider === 'openai') {
+        return this.generateOpenAIEmbedding(text, options);
+      } else if (this.provider === 'ollama') {
+        return this.generateOllamaEmbedding(text, options);
+      } else {
+        throw new Error(`Embeddings are not supported with ${this.provider} provider`);
       }
-
-      const {
-        model = openaiConfig.embeddingModel,
-        dimensions,
-      } = options;
-
-      const response = await this.openaiClient.embeddings.create({
-        model,
-        input: text,
-        dimensions,
-      });
-
-      const embedding = response.data[0]?.embedding;
-      if (!embedding) {
-        throw new Error('No embedding in response');
-      }
-
-      logger.debug({
-        model,
-        textLength: text.length,
-        embeddingDimensions: embedding.length,
-        totalTokens: response.usage?.total_tokens,
-      }, 'Embedding generated successfully');
-
-      return embedding;
     } catch (error) {
       logger.error({ error, text: text.substring(0, 100) }, 'Failed to generate embedding');
       throw error;
     }
+  }
+
+  private async generateOpenAIEmbedding(
+    text: string,
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[]> {
+    const {
+      model = openaiConfig.embeddingModel,
+      dimensions,
+    } = options;
+
+    const response = await this.openaiClient.embeddings.create({
+      model,
+      input: text,
+      dimensions,
+    });
+
+    const embedding = response.data[0]?.embedding;
+    if (!embedding) {
+      throw new Error('No embedding in response');
+    }
+
+    logger.debug({
+      provider: 'openai',
+      model,
+      textLength: text.length,
+      embeddingDimensions: embedding.length,
+      totalTokens: response.usage?.total_tokens,
+    }, 'OpenAI embedding generated successfully');
+
+    return embedding;
+  }
+
+  private async generateLMStudioEmbedding(
+    text: string,
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[]> {
+    const {
+      model = lmStudioConfig.embeddingModel,
+      dimensions,
+    } = options;
+
+    const response = await this.lmStudioClient.embeddings.create({
+      model,
+      input: text,
+      dimensions,
+    });
+
+    const embedding = response.data[0]?.embedding;
+    if (!embedding) {
+      throw new Error('No embedding in response');
+    }
+
+    logger.debug({
+      provider: 'lm-studio',
+      model,
+      textLength: text.length,
+      embeddingDimensions: embedding.length,
+      totalTokens: response.usage?.total_tokens,
+    }, 'LM Studio embedding generated successfully');
+
+    return embedding;
+  }
+
+  private async generateOllamaEmbedding(
+    text: string,
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[]> {
+    const {
+      model = ollamaConfig.embeddingModel,
+    } = options;
+
+    const response = await fetch(`${ollamaConfig.baseURL}/api/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        prompt: text,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API error: ${response.statusText}`);
+    }
+
+    const data = await response.json() as { embedding: number[] };
+    const embedding = data.embedding;
+    
+    if (!embedding) {
+      throw new Error('No embedding in response');
+    }
+
+    logger.debug({
+      provider: 'ollama',
+      model,
+      textLength: text.length,
+      embeddingDimensions: embedding.length,
+    }, 'Ollama embedding generated successfully');
+
+    return embedding;
   }
 
   async generateEmbeddings(
@@ -310,35 +453,95 @@ export class LLMService {
     options: LLMEmbeddingOptions = {}
   ): Promise<number[][]> {
     try {
-      if (this.provider !== 'openai') {
-        throw new Error('Embeddings are only supported with OpenAI provider');
+      if (this.provider === 'lm-studio') {
+        return this.generateLMStudioEmbeddings(texts, options);
+      } else if (this.provider === 'openai') {
+        return this.generateOpenAIEmbeddings(texts, options);
+      } else if (this.provider === 'ollama') {
+        return this.generateOllamaEmbeddings(texts, options);
+      } else {
+        throw new Error(`Embeddings are not supported with ${this.provider} provider`);
       }
-
-      const {
-        model = openaiConfig.embeddingModel,
-        dimensions,
-      } = options;
-
-      const response = await this.openaiClient.embeddings.create({
-        model,
-        input: texts,
-        dimensions,
-      });
-
-      const embeddings = response.data.map(item => item.embedding);
-
-      logger.debug({
-        model,
-        textCount: texts.length,
-        embeddingDimensions: embeddings[0]?.length,
-        totalTokens: response.usage?.total_tokens,
-      }, 'Embeddings generated successfully');
-
-      return embeddings;
     } catch (error) {
       logger.error({ error, textCount: texts.length }, 'Failed to generate embeddings');
       throw error;
     }
+  }
+
+  private async generateOpenAIEmbeddings(
+    texts: string[],
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[][]> {
+    const {
+      model = openaiConfig.embeddingModel,
+      dimensions,
+    } = options;
+
+    const response = await this.openaiClient.embeddings.create({
+      model,
+      input: texts,
+      dimensions,
+    });
+
+    const embeddings = response.data.map(item => item.embedding);
+
+    logger.debug({
+      provider: 'openai',
+      model,
+      textCount: texts.length,
+      embeddingDimensions: embeddings[0]?.length,
+      totalTokens: response.usage?.total_tokens,
+    }, 'OpenAI embeddings generated successfully');
+
+    return embeddings;
+  }
+
+  private async generateLMStudioEmbeddings(
+    texts: string[],
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[][]> {
+    const {
+      model = lmStudioConfig.embeddingModel,
+      dimensions,
+    } = options;
+
+    const response = await this.lmStudioClient.embeddings.create({
+      model,
+      input: texts,
+      dimensions,
+    });
+
+    const embeddings = response.data.map(item => item.embedding);
+
+    logger.debug({
+      provider: 'lm-studio',
+      model,
+      textCount: texts.length,
+      embeddingDimensions: embeddings[0]?.length,
+      totalTokens: response.usage?.total_tokens,
+    }, 'LM Studio embeddings generated successfully');
+
+    return embeddings;
+  }
+
+  private async generateOllamaEmbeddings(
+    texts: string[],
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[][]> {
+    const embeddings: number[][] = [];
+    
+    for (const text of texts) {
+      const embedding = await this.generateOllamaEmbedding(text, options);
+      embeddings.push(embedding);
+    }
+
+    logger.debug({
+      provider: 'ollama',
+      textCount: texts.length,
+      embeddingDimensions: embeddings[0]?.length,
+    }, 'Ollama embeddings generated successfully');
+
+    return embeddings;
   }
 
   async streamCompletion(

@@ -186,6 +186,10 @@ prisma/migrations/*
 test-results/
 coverage/
 
+# Debug credentials (sensitive)
+tests/debug/.env.debug
+tests/debug/token.json
+
 # Monitoring
 monitoring/logs/*
 !monitoring/logs/.gitkeep

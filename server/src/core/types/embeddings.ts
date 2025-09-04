@@ -3,6 +3,8 @@ export enum EmbeddingModel {
   OPENAI_TEXT_EMBEDDING_ADA_002 = 'text-embedding-ada-002',
   OPENAI_TEXT_EMBEDDING_3_SMALL = 'text-embedding-3-small',
   OPENAI_TEXT_EMBEDDING_3_LARGE = 'text-embedding-3-large',
+  LM_STUDIO_EMBEDDING = 'text-embedding-nomic-embed-text',
+  OLLAMA_EMBEDDING = 'nomic-embed-text',
 }
 
 // Vector store types
@@ -10,6 +12,7 @@ export enum VectorStoreType {
   CHROMA = 'CHROMA',
   WEAVIATE = 'WEAVIATE',
   QDRANT = 'QDRANT',
+  NEO4J = 'NEO4J', // Added Neo4j support
 }
 
 // Embedding configuration
@@ -46,6 +49,9 @@ export interface DocumentChunk {
   endIndex: number;
   chunkIndex: number;
   totalChunks: number;
+  // Neo4j graph properties
+  neo4jNodeId?: string;
+  graphRelationships?: string[]; // IDs of related chunks in graph
 }
 
 // Chunk metadata
@@ -62,6 +68,10 @@ export interface ChunkMetadata {
   updatedAt: string;
   tags?: string[];
   customFields?: Record<string, any>;
+  // Neo4j graph metadata
+  graphNodeId?: string;
+  graphRelationshipCount?: number;
+  graphCentralityScore?: number;
 }
 
 // Vector record for storage
@@ -94,6 +104,20 @@ export interface VectorMetadata {
   tokens: number;
   chunkIndex: number;
   totalChunks: number;
+  // AST-specific metadata
+  astNodeType?: ASTNodeType;
+  functionName?: string;
+  className?: string;
+  methodName?: string;
+  parameters?: string[];
+  returnType?: string;
+  visibility?: 'public' | 'private' | 'protected';
+  isStatic?: boolean;
+  isAsync?: boolean;
+  complexity?: number;
+  dependencies?: string[];
+  startLine?: number;
+  endLine?: number;
 }
 
 // Embedding request
@@ -144,6 +168,27 @@ export interface VectorFilter {
   path?: {
     $regex?: string;
   };
+  // AST-specific filters
+  astNodeType?: ASTNodeType | ASTNodeType[];
+  functionName?: string | string[];
+  className?: string | string[];
+  methodName?: string | string[];
+  visibility?: ('public' | 'private' | 'protected')[];
+  isStatic?: boolean;
+  isAsync?: boolean;
+  complexity?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  dependencies?: string | string[];
+  startLine?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  endLine?: {
+    $gte?: number;
+    $lte?: number;
+  };
   [key: string]: any;
 }
 
@@ -172,6 +217,39 @@ export enum ChunkingStrategy {
   CODE = 'CODE',
 }
 
+// AST-specific chunk types
+export enum ASTNodeType {
+  CLASS = 'class',
+  FUNCTION = 'function',
+  METHOD = 'method',
+  INTERFACE = 'interface',
+  TYPE = 'type',
+  VARIABLE = 'variable',
+  CONSTANT = 'constant',
+  IMPORT = 'import',
+  EXPORT = 'export',
+  COMMENT = 'comment',
+  OTHER = 'other'
+}
+
+// AST chunk metadata
+export interface ASTChunkMetadata extends ChunkMetadata {
+  astNodeType?: ASTNodeType;
+  functionName?: string;
+  className?: string;
+  methodName?: string;
+  parameters?: string[];
+  returnType?: string;
+  visibility?: 'public' | 'private' | 'protected';
+  isStatic?: boolean;
+  isAsync?: boolean;
+  complexity?: number;
+  dependencies?: string[];
+  startLine?: number;
+  endLine?: number;
+  syntaxTree?: any; // Simplified AST representation
+}
+
 // Chunking configuration
 export interface ChunkingConfig {
   strategy: ChunkingStrategy;
@@ -182,6 +260,7 @@ export interface ChunkingConfig {
   separators?: string[];
   preserveStructure?: boolean;
   respectBoundaries?: boolean;
+  language?: string; // Language for AST-based code parsing
 }
 
 // Chunking result

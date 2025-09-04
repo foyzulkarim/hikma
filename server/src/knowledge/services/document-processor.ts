@@ -9,11 +9,12 @@ import {
   VectorMetadata,
   EmbeddingModel,
 } from '@/core/types/embeddings';
-import { embeddingService } from './embedding-service';
+import { embeddingService } from './embedding.service';
 import { logger } from '@/core/utils/logger';
 import { HashUtils, SecureRandomUtils } from '@/core/utils/crypto';
 import { ValidationError } from '@/core/errors/app-error';
 import { vectorService } from '@/config/vector-db'; // Import vectorService
+import { astParserService, CodeChunk } from './ast-parser.service';
 
 // Text chunking utilities
 class TextChunker {
@@ -168,8 +169,79 @@ class TextChunker {
     return chunks;
   }
 
-  static chunkByCode(text: string, chunkSize: number, overlap: number, language?: string): string[] {
-    // Language-specific chunking strategies
+  static async chunkByCode(text: string, chunkSize: number, overlap: number, language?: string): Promise<string[]> {
+    // Try AST-based chunking first if language is supported
+    if (language && astParserService.isLanguageSupported(language)) {
+      try {
+        const parseResult = await astParserService.parseCode(text, language);
+        
+        if (parseResult.errors.length === 0 && parseResult.chunks.length > 0) {
+          // Convert AST chunks to text chunks, respecting size constraints
+          const astChunks: string[] = [];
+          let currentChunk = '';
+          let currentSize = 0;
+          
+          for (const codeChunk of parseResult.chunks) {
+            const chunkText = codeChunk.content;
+            
+            // If this chunk fits within size limits, add it as-is
+            if (chunkText.length <= chunkSize) {
+              // If adding this chunk would exceed size, finalize current chunk
+              if (currentSize + chunkText.length > chunkSize && currentChunk.length > 0) {
+                astChunks.push(currentChunk.trim());
+                currentChunk = '';
+                currentSize = 0;
+                
+                // Add overlap from previous chunk if specified
+                if (overlap > 0 && astChunks.length > 0) {
+                  const prevChunk = astChunks[astChunks.length - 1];
+                  const overlapText = prevChunk.slice(-overlap);
+                  currentChunk = overlapText;
+                  currentSize = overlapText.length;
+                }
+              }
+              
+              currentChunk += (currentChunk.length > 0 ? '\n' : '') + chunkText;
+              currentSize += chunkText.length + (currentChunk.length > chunkText.length ? 1 : 0);
+            } else {
+              // Chunk is too large, split it using recursive method
+              const subChunks = TextChunker.chunkByRecursive(chunkText, chunkSize, overlap);
+              for (const subChunk of subChunks) {
+                if (currentSize + subChunk.length > chunkSize && currentChunk.length > 0) {
+                  astChunks.push(currentChunk.trim());
+                  currentChunk = '';
+                  currentSize = 0;
+                }
+                currentChunk += (currentChunk.length > 0 ? '\n' : '') + subChunk;
+                currentSize += subChunk.length + (currentChunk.length > subChunk.length ? 1 : 0);
+              }
+            }
+          }
+          
+          // Add final chunk if it exists
+          if (currentChunk.trim().length > 0) {
+            astChunks.push(currentChunk.trim());
+          }
+          
+          // Return AST-based chunks if we got meaningful results
+          if (astChunks.length > 0) {
+            logger.debug({
+              language,
+              astChunks: parseResult.chunks.length,
+              textChunks: astChunks.length
+            }, 'Successfully used AST-based chunking');
+            return astChunks;
+          }
+        }
+      } catch (error) {
+        logger.warn({
+          language,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }, 'AST parsing failed, falling back to text-based chunking');
+      }
+    }
+    
+    // Fallback to original language-specific chunking strategies
     const languageStrategies: Record<string, string[]> = {
       javascript: ['\nclass ', '\nfunction ', '\nconst ', '\nlet ', '\nvar ', '\n\n', '\n'],
       typescript: ['\nclass ', '\ninterface ', '\ntype ', '\nfunction ', '\nconst ', '\nlet ', '\n\n', '\n'],
@@ -297,10 +369,11 @@ export class DocumentProcessor implements IDocumentProcessor {
           break;
 
         case ChunkingStrategy.CODE:
-          textChunks = TextChunker.chunkByCode(
+          textChunks = await TextChunker.chunkByCode(
             content,
             chunkConfig.chunkSize,
-            chunkConfig.chunkOverlap
+            chunkConfig.chunkOverlap,
+            chunkConfig.language
           );
           break;
 
@@ -402,10 +475,7 @@ export class DocumentProcessor implements IDocumentProcessor {
       const texts = chunks.map(chunk => chunk.content);
 
       // Generate embeddings
-      const embeddingResponse = await embeddingService.generateEmbeddings({
-        texts,
-        model: EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
-      });
+      const embeddingResponse = await embeddingService.generateEmbeddings(texts);
 
       // Create vector records
       const vectors: VectorRecord[] = chunks.map((chunk, index) => {
@@ -439,7 +509,7 @@ export class DocumentProcessor implements IDocumentProcessor {
       logger.debug({
         chunkCount: chunks.length,
         vectorCount: vectors.length,
-        totalTokens: embeddingResponse.usage.totalTokens,
+        totalTokens: embeddingResponse.usage.total_tokens,
       }, 'Chunk embedding completed');
 
       return vectors;

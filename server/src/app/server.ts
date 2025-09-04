@@ -32,6 +32,7 @@ import { knowledgeService } from '@/knowledge/services/index';
 import { monitoringOrchestrator } from '@/infrastructure/monitoring/services/monitoring-orchestrator';
 import { eventBus } from '@/shared/events';
 import { ProjectEventHandlersService } from '@/domains/projects/services/project-event-handlers.service';
+import { ProjectRepository } from '@/domains/projects/repositories/project.repository';
 
 // Server configuration
 interface ServerConfig {
@@ -261,6 +262,11 @@ async function registerMiddleware(server: FastifyInstance): Promise<void> {
   // Register authenticate decorator
   server.decorate('authenticate', requireAuth);
   
+  // Initialize project event handlers now that prisma is available
+  const projectRepository = new ProjectRepository(server.prisma);
+  const projectEventHandlers = new ProjectEventHandlersService(projectRepository);
+  await projectEventHandlers.initialize();
+  
   // Correlation ID middleware
   server.addHook('onRequest', correlationIdMiddleware);
 
@@ -296,9 +302,7 @@ async function initializeServices(): Promise<void> {
     // Initialize knowledge service
     await knowledgeService.initialize();
 
-    // Initialize project event handlers
-    const projectEventHandlers = new ProjectEventHandlersService();
-    await projectEventHandlers.initialize();
+    // Initialize project event handlers (will be done later when server is available)
 
     // Initialize agent orchestrator
     // TODO: Implement agent orchestrator

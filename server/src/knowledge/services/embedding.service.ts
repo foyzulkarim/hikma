@@ -11,8 +11,8 @@ export interface EmbeddingServiceConfig {
 }
 
 const defaultConfig: EmbeddingServiceConfig = {
-  model: EmbeddingModel.LM_STUDIO_EMBEDDING,
-  batchSize: 50, // Reduced batch size for local LM Studio
+  model: EmbeddingModel.OLLAMA_EMBEDDING,
+  batchSize: 10,
   maxRetries: 3,
   retryDelayMs: 1000,
 };
@@ -223,6 +223,36 @@ export class EmbeddingService {
    */
   getConfig(): EmbeddingServiceConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Estimate tokens in text (compatibility method)
+   */
+  estimateTokens(text: string): number {
+    // Simple estimation: 1 token ≈ 4 characters
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Generate embeddings for multiple texts (batch processing)
+   */
+  async generateEmbeddings(texts: string[]): Promise<{ embeddings: number[][]; usage: { prompt_tokens: number; total_tokens: number } }> {
+    const embeddings: number[][] = [];
+    let totalTokens = 0;
+
+    for (const text of texts) {
+      const embedding = await this.generateEmbedding(text);
+      embeddings.push(embedding);
+      totalTokens += this.estimateTokens(text);
+    }
+
+    return {
+      embeddings,
+      usage: {
+        prompt_tokens: totalTokens,
+        total_tokens: totalTokens
+      }
+    };
   }
 }
 

@@ -9,7 +9,7 @@ import {
   VectorMetadata,
   EmbeddingModel,
 } from '@/core/types/embeddings';
-import { embeddingService } from './embedding-service';
+import { embeddingService } from './embedding.service';
 import { logger } from '@/core/utils/logger';
 import { HashUtils, SecureRandomUtils } from '@/core/utils/crypto';
 import { ValidationError } from '@/core/errors/app-error';
@@ -475,10 +475,7 @@ export class DocumentProcessor implements IDocumentProcessor {
       const texts = chunks.map(chunk => chunk.content);
 
       // Generate embeddings
-      const embeddingResponse = await embeddingService.generateEmbeddings({
-        texts,
-        model: EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL,
-      });
+      const embeddingResponse = await embeddingService.generateEmbeddings(texts);
 
       // Create vector records
       const vectors: VectorRecord[] = chunks.map((chunk, index) => {
@@ -512,7 +509,7 @@ export class DocumentProcessor implements IDocumentProcessor {
       logger.debug({
         chunkCount: chunks.length,
         vectorCount: vectors.length,
-        totalTokens: embeddingResponse.usage.totalTokens,
+        totalTokens: embeddingResponse.usage.total_tokens,
       }, 'Chunk embedding completed');
 
       return vectors;

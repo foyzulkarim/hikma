@@ -7,6 +7,7 @@ import { GitService } from '@/shared/services/git.service';
 import { TempDirectoryManager } from '@/shared/utils/temp-directory.util';
 import { logger } from '@/core/utils/logger';
 import { ValidationError, ExternalServiceError } from '@/core/errors/app-error';
+import { ASTProcessingHandler } from '@/knowledge/handlers/ast-processing.handler';
 
 export interface ProjectSyncResult {
   status: 'success' | 'error' | 'in_progress';
@@ -27,11 +28,13 @@ export class ProjectSyncService {
   private ghCliService: GhCliService;
   private gitService: GitService;
   private tempManager: TempDirectoryManager;
+  private astProcessingHandler: ASTProcessingHandler;
 
   constructor(private projectRepository: IProjectRepository) {
     this.ghCliService = new GhCliService();
     this.gitService = new GitService();
     this.tempManager = TempDirectoryManager.getInstance();
+    this.astProcessingHandler = new ASTProcessingHandler();
   }
 
   async syncProject(id: string, userId: string, options: SyncOptions = {}): Promise<ProjectSyncResult> {
@@ -216,6 +219,18 @@ export class ProjectSyncService {
           repositoryPath: repositoryInfo?.path,
           correlationId
         }, 'Skipping temporary clone');
+      }
+
+      // DIRECT AST PROCESSING: Parse code files and generate embeddings
+      // This replaces the complex event-driven approach with a simple direct call
+      if (tempPath) {
+        logger.info({ projectId: id, tempPath, correlationId }, 'Starting AST processing for cloned repository');
+        await this.processRepositoryFiles(id, tempPath, correlationId);
+      } else if (repositoryInfo?.path) {
+        logger.info({ projectId: id, path: repositoryInfo.path, correlationId }, 'Starting AST processing for existing repository');
+        await this.processRepositoryFiles(id, repositoryInfo.path, correlationId);
+      } else {
+        logger.warn({ projectId: id, correlationId }, 'No repository path available for AST processing');
       }
 
       // Prepare and emit domain event
@@ -505,5 +520,205 @@ export class ProjectSyncService {
       }, 'Failed to cleanup repository directory');
       // Don't throw error for cleanup failures, just log them
     }
+  }
+
+  /**
+   * Process repository files with AST parsing and embedding generation
+   */
+  private async processRepositoryFiles(projectId: string, repositoryPath: string, correlationId: string): Promise<void> {
+    const startTime = Date.now();
+    
+    logger.info({
+      projectId,
+      repositoryPath,
+      correlationId
+    }, 'Starting repository AST processing and embedding generation');
+
+    try {
+      // Get all code files from the repository
+      const codeFiles = await this.getCodeFiles(repositoryPath);
+      
+      logger.info({
+        projectId,
+        repositoryPath,
+        totalFiles: codeFiles.length,
+        correlationId
+      }, 'Found code files for processing');
+
+      let processedFiles = 0;
+      let failedFiles = 0;
+
+      // Process each code file
+      for (const filePath of codeFiles) {
+        try {
+          await this.processSingleFile(filePath, repositoryPath, projectId, correlationId);
+          processedFiles++;
+          
+          logger.debug({
+            projectId,
+            filePath: filePath.replace(repositoryPath, ''),
+            processedFiles,
+            totalFiles: codeFiles.length,
+            correlationId
+          }, 'Successfully processed file');
+          
+        } catch (fileError) {
+          failedFiles++;
+          logger.error({
+            projectId,
+            filePath: filePath.replace(repositoryPath, ''),
+            error: fileError instanceof Error ? fileError.message : 'Unknown error',
+            correlationId
+          }, 'Failed to process file');
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      
+      logger.info({
+        projectId,
+        repositoryPath,
+        totalFiles: codeFiles.length,
+        processedFiles,
+        failedFiles,
+        duration,
+        correlationId
+      }, 'Repository AST processing completed');
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logger.error({
+        projectId,
+        repositoryPath,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'Repository AST processing failed');
+      throw error;
+    }
+  }
+
+  /**
+   * Process a single file with AST parsing and embedding generation
+   */
+  private async processSingleFile(
+    filePath: string, 
+    repositoryPath: string, 
+    projectId: string, 
+    correlationId: string
+  ): Promise<void> {
+    try {
+      // Read file content
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const content = await fs.readFile(filePath, 'utf-8');
+      
+      // Get relative path from repository root
+      const relativePath = path.relative(repositoryPath, filePath);
+      
+      // Determine file language from extension
+      const language = this.getLanguageFromPath(filePath);
+      
+      // Process with AST handler
+      const result = await this.astProcessingHandler.handleASTProcessing({
+        projectId,
+        filePath: relativePath,
+        content,
+        language,
+        sourceId: correlationId,
+        sourceType: 'git'
+      });
+      
+      if (!result.success) {
+        logger.warn({
+          projectId,
+          filePath: relativePath,
+          error: result.error,
+          correlationId
+        }, 'AST processing failed for file');
+      }
+      
+    } catch (error) {
+      logger.error({
+        projectId,
+        filePath: filePath.replace(repositoryPath, ''),
+        error: error instanceof Error ? error.message : 'Unknown error',
+        correlationId
+      }, 'Failed to process file content');
+      throw error;
+    }
+  }
+
+  /**
+   * Get all code files from a directory recursively
+   */
+  private async getCodeFiles(directoryPath: string): Promise<string[]> {
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const codeFiles: string[] = [];
+    const codeExtensions = new Set([
+      '.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.hpp',
+      '.cs', '.php', '.rb', '.swift', '.kt', '.scala', '.clj', '.hs', '.ml', '.fs', '.vb'
+    ]);
+
+    async function scanDirectory(currentPath: string): Promise<void> {
+      try {
+        const entries = await fs.readdir(currentPath, { withFileTypes: true });
+        
+        for (const entry of entries) {
+          const fullPath = path.join(currentPath, entry.name);
+          
+          if (entry.isDirectory()) {
+            // Skip common non-code directories
+            if (!['node_modules', '.git', 'dist', 'build', '.next', 'target', 'bin', 'obj'].includes(entry.name)) {
+              await scanDirectory(fullPath);
+            }
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase();
+            if (codeExtensions.has(ext)) {
+              codeFiles.push(fullPath);
+            }
+          }
+        }
+      } catch (error) {
+        logger.debug({ currentPath, error }, 'Failed to scan directory');
+      }
+    }
+
+    await scanDirectory(directoryPath);
+    return codeFiles;
+  }
+
+  /**
+   * Get programming language from file path
+   */
+  private getLanguageFromPath(filePath: string): string {
+    const path = require('path');
+    const ext = path.extname(filePath).toLowerCase();
+    
+    const languageMap: Record<string, string> = {
+      '.ts': 'typescript',
+      '.tsx': 'typescript',
+      '.js': 'javascript', 
+      '.jsx': 'javascript',
+      '.py': 'python',
+      '.java': 'java',
+      '.go': 'go',
+      '.rs': 'rust',
+      '.c': 'c',
+      '.cpp': 'cpp',
+      '.h': 'c',
+      '.hpp': 'cpp',
+      '.cs': 'csharp',
+      '.php': 'php',
+      '.rb': 'ruby',
+      '.swift': 'swift',
+      '.kt': 'kotlin',
+      '.scala': 'scala'
+    };
+    
+    return languageMap[ext] || 'text';
   }
 }

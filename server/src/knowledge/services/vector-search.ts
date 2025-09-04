@@ -8,7 +8,7 @@ import {
   VectorFilter,
   EmbeddingModel,
 } from '@/core/types/embeddings';
-import { embeddingService } from './embedding-service';
+import { embeddingService } from './embedding.service';
 import { vectorDbManager } from '@/config/vector-db'; // Import vectorDbManager
 import { logger } from '@/core/utils/logger';
 import { ValidationError } from '@/core/errors/app-error';
@@ -207,10 +207,7 @@ export class VectorSearchService implements IVectorSearchService {
       }
 
       // Generate embedding for the search text
-      const embedding = await embeddingService.generateEmbedding(
-        text,
-        EmbeddingModel.OPENAI_TEXT_EMBEDDING_3_SMALL
-      );
+      const embedding = await embeddingService.generateEmbedding(text);
 
       const vectorResponse = await (vectorDbManager as any).query(embedding, {
         limit: searchOptions.topK || 10,

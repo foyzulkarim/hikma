@@ -17,7 +17,9 @@ const openaiConfig = {
 const ollamaConfig = {
   baseURL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   model: process.env.OLLAMA_MODEL || 'llama2',
+  embeddingModel: process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text',
   timeout: parseInt(process.env.OLLAMA_TIMEOUT || '120000', 10),
+  maxRetries: parseInt(process.env.OLLAMA_MAX_RETRIES || '3', 10),
 };
 
 // LM Studio Configuration
@@ -333,6 +335,8 @@ export class LLMService {
         return this.generateLMStudioEmbedding(text, options);
       } else if (this.provider === 'openai') {
         return this.generateOpenAIEmbedding(text, options);
+      } else if (this.provider === 'ollama') {
+        return this.generateOllamaEmbedding(text, options);
       } else {
         throw new Error(`Embeddings are not supported with ${this.provider} provider`);
       }
@@ -404,6 +408,46 @@ export class LLMService {
     return embedding;
   }
 
+  private async generateOllamaEmbedding(
+    text: string,
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[]> {
+    const {
+      model = ollamaConfig.embeddingModel,
+    } = options;
+
+    const response = await fetch(`${ollamaConfig.baseURL}/api/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        prompt: text,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API error: ${response.statusText}`);
+    }
+
+    const data = await response.json() as { embedding: number[] };
+    const embedding = data.embedding;
+    
+    if (!embedding) {
+      throw new Error('No embedding in response');
+    }
+
+    logger.debug({
+      provider: 'ollama',
+      model,
+      textLength: text.length,
+      embeddingDimensions: embedding.length,
+    }, 'Ollama embedding generated successfully');
+
+    return embedding;
+  }
+
   async generateEmbeddings(
     texts: string[],
     options: LLMEmbeddingOptions = {}
@@ -413,6 +457,8 @@ export class LLMService {
         return this.generateLMStudioEmbeddings(texts, options);
       } else if (this.provider === 'openai') {
         return this.generateOpenAIEmbeddings(texts, options);
+      } else if (this.provider === 'ollama') {
+        return this.generateOllamaEmbeddings(texts, options);
       } else {
         throw new Error(`Embeddings are not supported with ${this.provider} provider`);
       }
@@ -474,6 +520,26 @@ export class LLMService {
       embeddingDimensions: embeddings[0]?.length,
       totalTokens: response.usage?.total_tokens,
     }, 'LM Studio embeddings generated successfully');
+
+    return embeddings;
+  }
+
+  private async generateOllamaEmbeddings(
+    texts: string[],
+    options: LLMEmbeddingOptions = {}
+  ): Promise<number[][]> {
+    const embeddings: number[][] = [];
+    
+    for (const text of texts) {
+      const embedding = await this.generateOllamaEmbedding(text, options);
+      embeddings.push(embedding);
+    }
+
+    logger.debug({
+      provider: 'ollama',
+      textCount: texts.length,
+      embeddingDimensions: embeddings[0]?.length,
+    }, 'Ollama embeddings generated successfully');
 
     return embeddings;
   }

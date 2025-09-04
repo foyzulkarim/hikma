@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DocumentProcessor } from '@/modules/knowledge/services/document-processor.js';
-import { embeddingService } from '@/modules/knowledge/services/embedding-service.js';
+import { embeddingService } from '@/modules/knowledge/services/embedding.service.js';
 import { vectorDbManager } from '@/config/vector-db.js';
 import { ChunkingStrategy, EmbeddingModel } from '@/core/types/embeddings.js';
 import { ValidationError } from '@/core/errors/app-error.js';
 
 // Mock external dependencies
-vi.mock('@/modules/knowledge/services/embedding-service.js', () => ({
+vi.mock('@/modules/knowledge/services/embedding.service.js', () => ({
   embeddingService: {
     generateEmbedding: vi.fn(() => Promise.resolve([0.1, 0.2, 0.3])),
     generateEmbeddings: vi.fn(() => Promise.resolve({

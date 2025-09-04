@@ -1,7 +1,7 @@
 import { astParserService } from '../services/ast-parser.service';
 import { ASTNodeType, ASTChunkMetadata, ChunkMetadata } from '../../core/types/embeddings';
 import { PrismaClient } from '@prisma/client';
-import { embeddingService } from '../services/embedding-service';
+import { embeddingService } from '../services/embedding.service';
 import { logger } from '../../core/utils/logger';
 import crypto from 'crypto';
 import { Neo4jChunkService, ChunkRelationshipType } from '../services/neo4j-chunk.service';

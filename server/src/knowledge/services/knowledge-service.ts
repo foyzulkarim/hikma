@@ -1,7 +1,7 @@
 import { eventBus } from '@/shared/events/event-bus';
 import { DocumentIngestedEvent, SyncJobStartedEvent, SyncJobCompletedEvent } from '@/shared/events/event-types';
 import { logger } from '@/core/utils/logger';
-import { embeddingService } from './embedding-service';
+import { embeddingService } from './embedding.service';
 import { vectorStore, documentProcessor, vectorSearchService } from './index';
 
 export interface DocumentIngestionRequest {

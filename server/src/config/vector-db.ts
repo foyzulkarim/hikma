@@ -1,5 +1,5 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { DocumentChunk } from '@prisma/client';
+import { CodeChunk } from '@/core/types/embeddings';
 import { logger } from '@/core/utils/logger';
 
 // Qdrant Configuration
@@ -132,13 +132,39 @@ export class VectorDbManager {
   }
 }
 
-// Chunk payload interface for Qdrant
+// Chunk payload interface for Qdrant (aligned with CodeChunk schema)
 export interface ChunkPayload {
   chunk_id: string;
   content: string;
-  document_id: string;
+  file_id: string;
+  repository_id?: string;
   project_id?: string;
-  chunk_index: number;
+  
+  // Position information
+  start_line: number;
+  end_line: number;
+  start_column?: number;
+  end_column?: number;
+  
+  // Tree-sitter metadata
+  node_type: string;
+  node_name?: string;
+  signature?: string;
+  
+  // Classification
+  purpose_category?: string;
+  complexity_score?: number;
+  cognitive_complexity?: number;
+  
+  // Flags
+  has_docstring: boolean;
+  has_error_handling: boolean;
+  has_tests: boolean;
+  is_exported: boolean;
+  is_async: boolean;
+  is_generator: boolean;
+  is_static: boolean;
+  
   metadata?: Record<string, any>;
   created_at: string;
   updated_at: string;
@@ -463,18 +489,43 @@ export class VectorService {
    * Upsert a document chunk with its embedding to Qdrant
    */
   async upsertChunk(
-    chunk: DocumentChunk,
+    chunk: CodeChunk,
     embedding: number[],
     projectId?: string
   ): Promise<void> {
     try {
       const payload: ChunkPayload = {
         chunk_id: chunk.id,
-        content: chunk.content,
-        document_id: chunk.documentId,
+        content: chunk.codeContent,
+        file_id: chunk.fileId,
         project_id: projectId,
-        chunk_index: chunk.chunkIndex,
-        metadata: chunk.metadata as Record<string, any> || {},
+        
+        // Position information
+        start_line: chunk.startLine,
+        end_line: chunk.endLine,
+        start_column: chunk.startColumn || undefined,
+        end_column: chunk.endColumn || undefined,
+        
+        // Tree-sitter metadata
+        node_type: chunk.nodeType,
+        node_name: chunk.nodeName || undefined,
+        signature: chunk.signature || undefined,
+        
+        // Classification
+        purpose_category: chunk.purposeCategory || undefined,
+        complexity_score: chunk.complexityScore || undefined,
+        cognitive_complexity: chunk.cognitiveComplexity || undefined,
+        
+        // Flags
+        has_docstring: chunk.hasDocstring,
+        has_error_handling: chunk.hasErrorHandling,
+        has_tests: chunk.hasTests,
+        is_exported: chunk.isExported,
+        is_async: chunk.isAsync,
+        is_generator: chunk.isGenerator,
+        is_static: chunk.isStatic,
+        
+        metadata: {},
         created_at: chunk.createdAt.toISOString(),
         updated_at: chunk.updatedAt.toISOString(),
       };
@@ -493,7 +544,7 @@ export class VectorService {
       logger.debug(
         {
           chunkId: chunk.id,
-          documentId: chunk.documentId,
+          fileId: chunk.fileId,
           projectId,
           embeddingSize: embedding.length,
         },
@@ -504,7 +555,7 @@ export class VectorService {
         {
           error: error instanceof Error ? error.message : String(error),
           chunkId: chunk.id,
-          documentId: chunk.documentId,
+          fileId: chunk.fileId,
         },
         'Failed to upsert chunk to Qdrant'
       );
@@ -520,7 +571,8 @@ export class VectorService {
     options: {
       limit?: number;
       projectId?: string;
-      documentId?: string;
+      fileId?: string;
+      repositoryId?: string;
       scoreThreshold?: number;
       filter?: Record<string, any>;
     } = {}
@@ -531,7 +583,8 @@ export class VectorService {
       const {
         limit = 10,
         projectId,
-        documentId,
+        fileId,
+        repositoryId,
         scoreThreshold = 0.7,
         filter = {},
       } = options;
@@ -543,8 +596,12 @@ export class VectorService {
         searchFilter.project_id = projectId;
       }
       
-      if (documentId) {
-        searchFilter.document_id = documentId;
+      if (fileId) {
+        searchFilter.file_id = fileId;
+      }
+      
+      if (repositoryId) {
+        searchFilter.repository_id = repositoryId;
       }
 
       const searchResult = await this.qdrant.search(this.collectionName, {
@@ -574,7 +631,8 @@ export class VectorService {
           queryTime,
           resultsCount: results.length,
           projectId,
-          documentId,
+          fileId,
+          repositoryId,
           scoreThreshold,
         },
         'Chunk search completed'
@@ -590,7 +648,8 @@ export class VectorService {
         {
           error: error instanceof Error ? error.message : String(error),
           projectId: options.projectId,
-          documentId: options.documentId,
+          fileId: options.fileId,
+          repositoryId: options.repositoryId,
         },
         'Failed to search chunks'
       );

@@ -13,7 +13,7 @@ export interface TempDirectoryOptions {
 }
 
 export interface TempDirectoryInfo {
-  filePath: string;
+  path: string;
   created: Date;
   autoCleanup: boolean;
   cleanupScheduled?: NodeJS.Timeout;
@@ -101,7 +101,7 @@ export class TempDirectoryManager {
 
       // Track the directory
       const info: TempDirectoryInfo = {
-        filePath: tempPath,
+        path: tempPath,
         created: new Date(),
         autoCleanup,
       };
@@ -116,7 +116,7 @@ export class TempDirectoryManager {
         info.cleanupScheduled = setTimeout(() => {
           this.removeTempDirectory(tempPath, createCorrelationId).catch(error => {
             logger.error('Failed to auto-cleanup temp directory', {
-              filePath: tempPath,
+              path: tempPath,
               error: error instanceof Error ? error.message : 'Unknown error',
               correlationId: createCorrelationId
             });
@@ -129,7 +129,7 @@ export class TempDirectoryManager {
       const duration = Date.now() - startTime;
 
       logger.info('Temporary directory created successfully', {
-        file_path: tempPath,
+        path: tempPath,
         autoCleanup,
         maxAge,
         duration,
@@ -159,21 +159,21 @@ export class TempDirectoryManager {
   /**
    * Remove a temporary directory and all its contents
    */
-  async removeTempDirectory(filePath: string, correlationId?: string): Promise<void> {
+  async removeTempDirectory(tempPath: string, correlationId?: string): Promise<void> {
     const removeCorrelationId = correlationId || `temp-remove-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
     
     logger.info('Removing temporary directory', {
-        filePath,
-        correlationId: removeCorrelationId
-      });
+      path: tempPath,
+      correlationId: removeCorrelationId
+    });
     
     try {
-      const info = this.tempDirectories.get(filePath);
+      const info = this.tempDirectories.get(tempPath);
       
       if (info?.cleanupScheduled) {
         logger.debug('Clearing scheduled cleanup for temporary directory', {
-          filePath,
+          path: tempPath,
           correlationId: removeCorrelationId
         });
         clearTimeout(info.cleanupScheduled);
@@ -181,35 +181,35 @@ export class TempDirectoryManager {
 
       // Check if directory exists before attempting removal
       try {
-        await fs.access(filePath);
+        await fs.access(tempPath);
         logger.debug('Temporary directory exists, proceeding with removal', {
-          filePath,
+          path: tempPath,
           correlationId: removeCorrelationId
         });
       } catch {
         // Directory doesn't exist, nothing to remove
         logger.debug('Temporary directory does not exist, skipping removal', {
-          filePath,
+          path: tempPath,
           correlationId: removeCorrelationId
         });
-        this.tempDirectories.delete(filePath);
+        this.tempDirectories.delete(tempPath);
         return;
       }
 
       // Remove directory recursively
       logger.debug('Executing recursive directory removal', {
-        filePath,
+        path: tempPath,
         correlationId: removeCorrelationId
       });
       
-      await fs.rm(filePath, { recursive: true, force: true });
+      await fs.rm(tempPath, { recursive: true, force: true });
       
-      this.tempDirectories.delete(filePath);
+      this.tempDirectories.delete(tempPath);
       
       const duration = Date.now() - startTime;
 
       logger.info('Temporary directory removed successfully', {
-        filePath,
+        path: tempPath,
         duration,
         remainingManagedDirectories: this.tempDirectories.size,
         correlationId: removeCorrelationId
@@ -220,9 +220,10 @@ export class TempDirectoryManager {
       const errorStack = error instanceof Error ? error.stack : undefined;
       
       logger.error('Failed to remove temporary directory', {
-        filePath,
+        path: tempPath,
         error: errorMessage,
         stack: errorStack,
+        duration,
         correlationId: removeCorrelationId
       });
       
@@ -231,17 +232,17 @@ export class TempDirectoryManager {
   }
 
   /**
-   * Check if a file_path is a managed temporary directory
+   * Check if a path is a managed temporary directory
    */
-  isTempDirectory(file_path: string): boolean {
-    return this.tempDirectories.has(file_path);
+  isTempDirectory(path: string): boolean {
+    return this.tempDirectories.has(path);
   }
 
   /**
    * Get information about a temporary directory
    */
-  getTempDirectoryInfo(file_path: string): TempDirectoryInfo | undefined {
-    return this.tempDirectories.get(file_path);
+  getTempDirectoryInfo(path: string): TempDirectoryInfo | undefined {
+    return this.tempDirectories.get(path);
   }
 
   /**
@@ -263,10 +264,10 @@ export class TempDirectoryManager {
       correlationId: cleanupCorrelationId
     });
 
-    const cleanupPromises = Array.from(this.tempDirectories.keys()).map(file_path =>
-      this.removeTempDirectory(file_path, cleanupCorrelationId).catch(error => {
+    const cleanupPromises = Array.from(this.tempDirectories.keys()).map(path =>
+      this.removeTempDirectory(path, cleanupCorrelationId).catch(error => {
         logger.error('Failed to cleanup temp directory during shutdown', {
-          file_path,
+          path,
           error: error instanceof Error ? error.message : 'Unknown error',
           correlationId: cleanupCorrelationId
         });
@@ -311,12 +312,12 @@ export class TempDirectoryManager {
       correlationId: expiredCorrelationId
     });
 
-    for (const [file_path, info] of this.tempDirectories.entries()) {
+    for (const [path, info] of this.tempDirectories.entries()) {
       const age = now - info.created.getTime();
       if (age > maxAge) {
-        expiredPaths.push(file_path);
+        expiredPaths.push(path);
         logger.debug('Found expired temporary directory', {
-          file_path,
+          path,
           age,
           maxAge,
           created: info.created.toISOString(),
@@ -332,10 +333,10 @@ export class TempDirectoryManager {
         correlationId: expiredCorrelationId
       });
 
-      const cleanupPromises = expiredPaths.map(file_path =>
-        this.removeTempDirectory(file_path, expiredCorrelationId).catch(error => {
+      const cleanupPromises = expiredPaths.map(path =>
+        this.removeTempDirectory(path, expiredCorrelationId).catch(error => {
           logger.error('Failed to cleanup expired temp directory', {
-            file_path,
+            path,
             error: error instanceof Error ? error.message : 'Unknown error',
             correlationId: expiredCorrelationId
           });
@@ -450,8 +451,8 @@ export const tempDirectoryManager = TempDirectoryManager.getInstance();
 export const createTempDirectory = (options?: TempDirectoryOptions) =>
   tempDirectoryManager.createTempDirectory(options);
 
-export const removeTempDirectory = (filePath: string) =>
-    tempDirectoryManager.removeTempDirectory(filePath);
+export const removeTempDirectory = (path: string) =>
+  tempDirectoryManager.removeTempDirectory(path);
 
 export const withTempDirectory = <T>(
   callback: (tempPath: string) => Promise<T>,

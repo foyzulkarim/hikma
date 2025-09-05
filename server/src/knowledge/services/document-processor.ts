@@ -1,20 +1,21 @@
 import {
   IDocumentProcessor,
-  DocumentChunk,
-  ChunkMetadata,
+  CodeChunk,
   ChunkingConfig,
   ChunkingResult,
   ChunkingStrategy,
   VectorRecord,
   VectorMetadata,
   EmbeddingModel,
+  CodeChunkMetadata,
+  QdrantPayload,
 } from '@/core/types/embeddings';
 import { embeddingService } from './embedding.service';
 import { logger } from '@/core/utils/logger';
 import { HashUtils, SecureRandomUtils } from '@/core/utils/crypto';
 import { ValidationError } from '@/core/errors/app-error';
 import { vectorService } from '@/config/vector-db'; // Import vectorService
-import { astParserService, CodeChunk } from './ast-parser.service';
+import { astParserService } from './ast-parser.service';
 
 // Text chunking utilities
 class TextChunker {
@@ -461,7 +462,7 @@ export class DocumentProcessor implements IDocumentProcessor {
     return results;
   }
 
-  async embedChunks(chunks: DocumentChunk[]): Promise<VectorRecord[]> {
+  async embedChunks(chunks: CodeChunk[]): Promise<VectorRecord[]> {
     try {
       logger.debug({
         chunkCount: chunks.length,
@@ -472,37 +473,57 @@ export class DocumentProcessor implements IDocumentProcessor {
       }
 
       // Extract text content from chunks
-      const texts = chunks.map(chunk => chunk.content);
+      const texts = chunks.map(chunk => chunk.codeContent);
 
       // Generate embeddings
       const embeddingResponse = await embeddingService.generateEmbeddings(texts);
 
       // Create vector records
       const vectors: VectorRecord[] = chunks.map((chunk, index) => {
-        const metadata: VectorMetadata = {
-          documentId: chunk.documentId,
-          chunkId: chunk.id,
-          projectId: chunk.metadata.projectId,
-          documentType: chunk.metadata.documentType,
-          sourceType: chunk.metadata.sourceType,
-          sourceId: chunk.metadata.sourceId,
-          title: chunk.metadata.title,
-          content: chunk.content,
-          path: chunk.metadata.path,
-          language: chunk.metadata.language,
-          author: chunk.metadata.author,
-          createdAt: chunk.metadata.createdAt,
-          updatedAt: chunk.metadata.updatedAt,
-          tags: chunk.metadata.tags,
-          tokens: chunk.tokens,
-          chunkIndex: chunk.chunkIndex,
-          totalChunks: chunk.totalChunks,
+        const payload: QdrantPayload = {
+          chunk_id: chunk.id,
+          file_id: chunk.fileId,
+          repository_id: '',
+          node_type: chunk.nodeType,
+          node_name: chunk.nodeName || '',
+          file_path: '',
+          language: 'unknown',
+          framework: undefined,
+          purpose_category: chunk.purposeCategory || 'unknown',
+          domain_tags: [],
+          patterns: [],
+          parent_chunk_id: chunk.parentChunkId,
+          depth_level: 0,
+          complexity_score: chunk.complexityScore || 0,
+          line_count: chunk.endLine - chunk.startLine + 1,
+          token_count: embeddingService.estimateTokens(chunk.codeContent),
+          has_docstring: chunk.hasDocstring,
+          has_error_handling: chunk.hasErrorHandling,
+          has_tests: chunk.hasTests,
+          is_exported: chunk.isExported,
+          is_async: chunk.isAsync,
+          num_callers: 0,
+          num_callees: 0,
+          num_imports: 0,
+          signature: chunk.signature,
+          docstring_summary: undefined,
+          first_line_comment: undefined,
+          indexed_at: new Date().toISOString(),
+          file_modified_at: new Date().toISOString()
         };
+
+        const embedding = embeddingResponse.embeddings[index];
+        if (!embedding || embedding.length === 0) {
+          throw new Error(`Invalid embedding for chunk ${chunk.id}: embedding is empty or undefined`);
+        }
 
         return {
           id: chunk.id,
-          values: embeddingResponse.embeddings[index],
-          metadata,
+          vectors: {
+            code: embedding
+          },
+          payload,
+          values: embedding
         };
       });
 
@@ -527,7 +548,7 @@ export class DocumentProcessor implements IDocumentProcessor {
   async embedDocument(
     documentId: string,
     content: string,
-    metadata: ChunkMetadata
+    metadata: CodeChunkMetadata
   ): Promise<VectorRecord[]> {
     try {
       // First, chunk the document
@@ -535,17 +556,24 @@ export class DocumentProcessor implements IDocumentProcessor {
       const textChunks = (chunkingResult as any)._textChunks as string[];
 
       // Create document chunks with metadata
-      const chunks: DocumentChunk[] = textChunks.map((text, index) => ({
+      const chunks: CodeChunk[] = textChunks.map((text, index) => ({
         id: `${documentId}_chunk_${index}`,
-        documentId,
-        content: text,
-        metadata,
+        fileId: documentId,
+        codeContent: text,
+        nodeType: 'document',
+        startLine: 0,
+        endLine: text.split('\n').length,
         hash: HashUtils.sha256(text),
         tokens: embeddingService.estimateTokens(text),
-        startIndex: 0, // Would need to calculate actual positions
-        endIndex: text.length,
-        chunkIndex: index,
-        totalChunks: textChunks.length,
+        hasDocstring: false,
+        hasErrorHandling: false,
+        hasTests: false,
+        isExported: false,
+        isAsync: false,
+        isGenerator: false,
+        isStatic: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
       }));
 
       // Generate embeddings for chunks
@@ -565,9 +593,9 @@ export class DocumentProcessor implements IDocumentProcessor {
   async processDocument(
     documentId: string,
     content: string,
-    metadata: ChunkMetadata
+    metadata: CodeChunkMetadata
   ): Promise<{
-    chunks: DocumentChunk[];
+    chunks: CodeChunk[];
     vectors: VectorRecord[];
     stats: {
       totalChunks: number;
@@ -588,17 +616,24 @@ export class DocumentProcessor implements IDocumentProcessor {
       const textChunks = (chunkingResult as any)._textChunks as string[];
 
       // Create document chunks with metadata
-      const chunks: DocumentChunk[] = textChunks.map((text, index) => ({
+      const chunks: CodeChunk[] = textChunks.map((text, index) => ({
         id: `${documentId}_chunk_${index}`,
-        documentId,
-        content: text,
-        metadata,
+        fileId: documentId,
+        codeContent: text,
+        nodeType: 'document',
+        startLine: 0,
+        endLine: text.split('\n').length,
         hash: HashUtils.sha256(text),
         tokens: embeddingService.estimateTokens(text),
-        startIndex: 0, // Would need to calculate actual positions
-        endIndex: text.length,
-        chunkIndex: index,
-        totalChunks: textChunks.length,
+        hasDocstring: false,
+        hasErrorHandling: false,
+        hasTests: false,
+        isExported: false,
+        isAsync: false,
+        isGenerator: false,
+        isStatic: false,
+        createdAt: new Date(),
+        updatedAt: new Date()
       }));
 
       // Generate embeddings
@@ -606,7 +641,14 @@ export class DocumentProcessor implements IDocumentProcessor {
 
       // Upsert vectors to the vector store
       try {
-        await vectorService.upsert(vectors);
+        // Transform VectorRecord to match upsert interface
+        const upsertVectors = vectors.map(v => ({
+          id: v.id,
+          values: v.values!, // We've already validated this is not undefined
+          metadata: v.payload
+        }));
+        
+        await vectorService.upsert(upsertVectors);
       } catch (error) {
         logger.error({
           documentId,
@@ -652,7 +694,7 @@ export class DocumentProcessor implements IDocumentProcessor {
   async processDocuments(documents: Array<{
     id: string;
     content: string;
-    metadata: ChunkMetadata;
+    metadata: CodeChunkMetadata;
   }>): Promise<Map<string, VectorRecord[]>> {
     const results = new Map<string, VectorRecord[]>();
     

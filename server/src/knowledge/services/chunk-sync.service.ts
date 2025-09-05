@@ -1,4 +1,5 @@
-import { PrismaClient, DocumentChunk } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { CodeChunk } from '@/core/types/embeddings';
 import { EmbeddingService } from './embedding.service';
 import { vectorService } from '@/config/vector-db';
 import { logger } from '@/core/utils/logger';
@@ -7,7 +8,8 @@ export interface SyncOptions {
   limit?: number;
   offset?: number;
   projectId?: string;
-  documentId?: string;
+  repositoryId?: string;
+  fileId?: string;
   batchSize?: number;
   skipExisting?: boolean;
 }
@@ -41,7 +43,8 @@ export class ChunkSyncService {
       limit = 100,
       offset = 0,
       projectId,
-      documentId,
+      repositoryId,
+      fileId,
       batchSize = 10,
       skipExisting = true,
     } = options;
@@ -51,7 +54,8 @@ export class ChunkSyncService {
         limit,
         offset,
         projectId,
-        documentId,
+        repositoryId,
+        fileId,
         batchSize,
         skipExisting,
       },
@@ -71,15 +75,21 @@ export class ChunkSyncService {
       const whereClause: any = {};
       
       if (projectId) {
-        whereClause.document = {
-          knowledgeBase: {
+        whereClause.file = {
+          repository: {
             projectId: projectId,
           },
         };
       }
       
-      if (documentId) {
-        whereClause.documentId = documentId;
+      if (repositoryId) {
+        whereClause.file = {
+          repositoryId: repositoryId,
+        };
+      }
+      
+      if (fileId) {
+        whereClause.fileId = fileId;
       }
 
       // If skipExisting is true, only sync chunks without vectorId
@@ -88,19 +98,15 @@ export class ChunkSyncService {
       }
 
       // Fetch chunks from database
-      const chunks = await this.prisma.documentChunk.findMany({
+      const chunks = await this.prisma.codeChunk.findMany({
         where: whereClause,
         include: {
-          document: {
-            include: {
-              knowledgeBase: {
-                include: {
-                  project: true,
-                },
-              },
-            },
+        file: {
+          include: {
+            repository: true,
           },
         },
+      },
         take: limit,
         skip: offset,
         orderBy: {
@@ -160,13 +166,7 @@ export class ChunkSyncService {
    * Process a batch of chunks
    */
   private async processBatch(
-    chunks: (DocumentChunk & {
-      document: {
-        knowledgeBase: {
-          project: { id: string };
-        };
-      } | null;
-    })[],
+    chunks: any[],
     result: SyncResult
   ): Promise<void> {
     const promises = chunks.map(async (chunk) => {
@@ -176,18 +176,17 @@ export class ChunkSyncService {
         // Generate embedding for the chunk
         const embedding = await this.embeddingService.embedChunk(chunk);
         
-        // Get project ID from the document relationship
-        const projectId = chunk.document?.knowledgeBase?.project?.id;
+        // Get project ID from the file relationship
+        const projectId = chunk.file?.repository?.id;
         
         // Upsert chunk to Qdrant
         await vectorService.upsertChunk(chunk, embedding, projectId);
         
         // Update the chunk with vectorId (using chunk.id as vectorId)
-        await this.prisma.documentChunk.update({
+        await this.prisma.codeChunk.update({
           where: { id: chunk.id },
           data: {
             vectorId: chunk.id,
-            embedding: embedding, // Store embedding in PostgreSQL as well
           },
         });
         
@@ -196,7 +195,7 @@ export class ChunkSyncService {
         logger.debug(
           {
             chunkId: chunk.id,
-            documentId: chunk.documentId,
+            fileId: chunk.fileId,
             projectId,
             embeddingSize: embedding.length,
           },
@@ -214,7 +213,7 @@ export class ChunkSyncService {
         logger.error(
           {
             chunkId: chunk.id,
-            documentId: chunk.documentId,
+            fileId: chunk.fileId,
             error: errorMessage,
           },
           'Failed to sync chunk'
@@ -238,16 +237,16 @@ export class ChunkSyncService {
     const whereClause: any = {};
     
     if (projectId) {
-      whereClause.document = {
-        knowledgeBase: {
+      whereClause.file = {
+        repository: {
           projectId: projectId,
         },
       };
     }
 
     const [totalChunks, syncedChunks] = await Promise.all([
-      this.prisma.documentChunk.count({ where: whereClause }),
-      this.prisma.documentChunk.count({
+      this.prisma.codeChunk.count({ where: whereClause }),
+      this.prisma.codeChunk.count({
         where: {
           ...whereClause,
           vectorId: { not: null },
@@ -276,15 +275,15 @@ export class ChunkSyncService {
       };
       
       if (projectId) {
-        whereClause.document = {
-          knowledgeBase: {
+        whereClause.file = {
+          repository: {
             projectId: projectId,
           },
         };
       }
 
       // Get all synced chunks
-      const syncedChunks = await this.prisma.documentChunk.findMany({
+      const syncedChunks = await this.prisma.codeChunk.findMany({
         where: whereClause,
         select: { id: true, vectorId: true },
       });
@@ -296,19 +295,18 @@ export class ChunkSyncService {
 
       // Delete from Qdrant
       const vectorIds = syncedChunks
-        .map(chunk => chunk.vectorId)
-        .filter((id): id is string => id !== null);
+        .map((chunk: any) => chunk.vectorId)
+        .filter((id: any): id is string => id !== null);
       
       if (vectorIds.length > 0) {
         await vectorService.deleteVectors(vectorIds);
       }
 
-      // Reset vectorId and embedding in PostgreSQL
-      await this.prisma.documentChunk.updateMany({
+      // Reset vectorId in PostgreSQL
+      await this.prisma.codeChunk.updateMany({
         where: whereClause,
         data: {
           vectorId: null,
-          embedding: [],
         },
       });
 

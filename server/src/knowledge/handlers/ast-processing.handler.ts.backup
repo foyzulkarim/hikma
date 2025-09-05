@@ -94,6 +94,7 @@ export class ASTProcessingHandler {
       // Find or create repository for the project
       let repository = await this.prisma.repository.findFirst({
         where: { 
+          projectId: event.projectId,
           url: event.sourceId
         }
       });
@@ -101,11 +102,13 @@ export class ASTProcessingHandler {
       if (!repository) {
         repository = await this.prisma.repository.create({
           data: {
-            dataSource: {
-              connect: { id: event.projectId }
-            },
+            projectId: event.projectId,
             name: 'Default Repository',
             url: event.sourceId,
+            branch: 'main',
+            provider: event.sourceType.toUpperCase() as any,
+            isActive: true,
+            lastSyncAt: new Date()
           }
         });
       }
@@ -114,9 +117,14 @@ export class ASTProcessingHandler {
       const codeFile = await this.prisma.codeFile.create({
         data: {
           repositoryId: repository.id,
-          filePath: event.filePath,
+          path: event.filePath,
+          name: this.getFileNameFromPath(event.filePath),
+          content: event.content,
           language: this.getLanguageFromPath(event.filePath, event.language),
+          size: event.content.length,
+          hash: this.generateContentHash(event.content),
           lastModified: new Date(),
+          isActive: true
         }
       });
 
@@ -155,10 +163,23 @@ export class ASTProcessingHandler {
         const codeChunk = await this.prisma.codeChunk.create({
           data: {
             fileId: codeFileId,
-            codeContent: chunk.content,
+            content: chunk.content,
             startLine: chunk.startLine,
             endLine: chunk.endLine,
-            nodeType: this.mapToASTNodeType(chunk.type).toString(),
+            tokens: this.estimateTokens(chunk.content),
+            embedding,
+            astNodeType: this.mapToASTNodeType(chunk.type).toString(),
+            functionName: chunk.functionName,
+            className: chunk.className,
+            methodName: chunk.methodName,
+            parameters: chunk.parameters || [],
+            returnType: chunk.returnType,
+            visibility: chunk.visibility,
+            isStatic: chunk.isStatic || false,
+            isAsync: chunk.isAsync || false,
+            complexity: chunk.complexity || 1,
+            dependencies: chunk.dependencies || [],
+            syntaxTree: chunk.syntaxTree
           }
         });
 
@@ -246,7 +267,7 @@ export class ASTProcessingHandler {
     // Update code file status to indexed
     await this.prisma.codeFile.update({
       where: { id: codeFileId },
-      data: { }
+      data: { isActive: true }
     });
 
     return processedCount;

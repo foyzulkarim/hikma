@@ -18,7 +18,7 @@ import {
 } from './project.events';
 import { ASTProcessingHandler } from '@/knowledge/handlers/ast-processing.handler';
 import * as fs from 'fs/promises';
-import path from 'path';
+import * as path from 'path';
 
 export class ProjectEventHandlers {
   private astProcessingHandler: ASTProcessingHandler;
@@ -167,7 +167,7 @@ export class ProjectEventHandlers {
         correlationId
       }, 'Project sync started event received - initiating AST processing');
 
-      // If we have a temporary clone file_path, process files with AST parsing
+      // If we have a temporary clone path, process files with AST parsing
       if (event.metadata?.tempPath) {
         await this.processRepositoryWithAST(event, correlationId);
       } else {

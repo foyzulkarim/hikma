@@ -1,4 +1,4 @@
-import { CodeChunk } from '../../core/types/embeddings.js';
+import { DocumentChunk } from '@prisma/client';
 import { llmService } from '@/config/llm';
 import { logger } from '@/core/utils/logger';
 import { EmbeddingModel } from '@/core/types/embeddings';
@@ -57,9 +57,9 @@ export class EmbeddingService {
   /**
    * Generate embedding for a document chunk
    */
-  async embedChunk(chunk: CodeChunk): Promise<number[]> {
+  async embedChunk(chunk: DocumentChunk): Promise<number[]> {
     try {
-      if (!chunk.codeContent) {
+      if (!chunk.content) {
         throw new Error('Chunk content cannot be empty');
       }
 
@@ -70,8 +70,8 @@ export class EmbeddingService {
 
       logger.debug({
         chunkId: chunk.id,
-        fileId: chunk.fileId,
-        contentLength: chunk.codeContent.length,
+        documentId: chunk.documentId,
+        contentLength: chunk.content.length,
         embeddingDimensions: embedding.length,
       }, 'Generated embedding for chunk');
 
@@ -80,7 +80,7 @@ export class EmbeddingService {
       logger.error({ 
         error, 
         chunkId: chunk.id, 
-        fileId: chunk.fileId 
+        documentId: chunk.documentId 
       }, 'Failed to generate embedding for chunk');
       throw error;
     }
@@ -89,7 +89,7 @@ export class EmbeddingService {
   /**
    * Generate embeddings for multiple chunks in batches
    */
-  async embedChunks(chunks: CodeChunk[]): Promise<Map<string, number[]>> {
+  async embedChunks(chunks: DocumentChunk[]): Promise<Map<string, number[]>> {
     const results = new Map<string, number[]>();
     const errors: Array<{ chunkId: string; error: any }> = [];
 
@@ -141,17 +141,30 @@ export class EmbeddingService {
   /**
    * Create embedding text from chunk content and metadata
    */
-  private createEmbeddingText(chunk: CodeChunk): string {
-    let embeddingText = chunk.codeContent;
+  private createEmbeddingText(chunk: DocumentChunk): string {
+    let embeddingText = chunk.content;
 
-    // Add AST metadata for code chunks
-    const astInfo = [];
-    if (chunk.nodeName) astInfo.push(`name: ${chunk.nodeName}`);
-    if (chunk.nodeType) astInfo.push(`type: ${chunk.nodeType}`);
-    if (chunk.purposeCategory) astInfo.push(`purpose: ${chunk.purposeCategory}`);
-    
-    if (astInfo.length > 0) {
-      embeddingText = `${astInfo.join(', ')}\n\n${embeddingText}`;
+    // Add metadata context if available
+    if (chunk.metadata && typeof chunk.metadata === 'object') {
+      const metadata = chunk.metadata as any;
+      
+      // Add AST metadata for code chunks
+      if (metadata.astNodeType) {
+        const astInfo = [];
+        if (metadata.functionName) astInfo.push(`function: ${metadata.functionName}`);
+        if (metadata.className) astInfo.push(`class: ${metadata.className}`);
+        if (metadata.methodName) astInfo.push(`method: ${metadata.methodName}`);
+        if (metadata.astNodeType) astInfo.push(`type: ${metadata.astNodeType}`);
+        
+        if (astInfo.length > 0) {
+          embeddingText = `${astInfo.join(', ')}\n\n${embeddingText}`;
+        }
+      }
+
+      // Add file path context
+      if (metadata.path) {
+        embeddingText = `File: ${metadata.path}\n\n${embeddingText}`;
+      }
     }
 
     return embeddingText;

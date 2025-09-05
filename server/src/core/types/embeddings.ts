@@ -25,7 +25,34 @@ export interface EmbeddingConfig {
   rateLimitTpm: number;
 }
 
-// Vector store configuration
+// Qdrant collection configuration
+export interface QdrantCollectionConfig {
+  name: string;
+  vectors: {
+    code: {
+      size: number;
+      distance: 'Cosine' | 'Euclidean' | 'Dot';
+    };
+    documentation: {
+      size: number;
+      distance: 'Cosine' | 'Euclidean' | 'Dot';
+    };
+  };
+  optimizers_config: {
+    default_segment_number: number;
+    indexing_threshold: number;
+  };
+}
+
+// Qdrant indexes configuration
+export interface QdrantIndexesConfig {
+  keyword_indexes: string[];
+  keyword_array_indexes: string[];
+  numeric_indexes: string[];
+  boolean_indexes: string[];
+}
+
+// Vector store configuration (enhanced for multi-vector support)
 export interface VectorStoreConfig {
   type: VectorStoreType;
   indexName: string;
@@ -35,89 +62,255 @@ export interface VectorStoreConfig {
   environment?: string;
   apiKey?: string;
   baseUrl?: string;
+  
+  // Multi-vector configuration for Qdrant
+  multiVector?: {
+    code: {
+      dimensions: number;
+      metric: 'cosine' | 'euclidean' | 'dotproduct';
+    };
+    documentation: {
+      dimensions: number;
+      metric: 'cosine' | 'euclidean' | 'dotproduct';
+    };
+  };
+  
+  // Qdrant-specific configuration
+  qdrantConfig?: QdrantCollectionConfig;
+  qdrantIndexes?: QdrantIndexesConfig;
 }
 
-// Document chunk for embedding
-export interface DocumentChunk {
+// Code chunk for embedding (aligned with Prisma CodeChunk model)
+export interface CodeChunk {
   id: string;
-  documentId: string;
-  content: string;
-  metadata: ChunkMetadata;
-  hash: string;
-  tokens: number;
-  startIndex: number;
-  endIndex: number;
-  chunkIndex: number;
-  totalChunks: number;
-  // Neo4j graph properties
-  neo4jNodeId?: string;
-  graphRelationships?: string[]; // IDs of related chunks in graph
+  fileId: string;
+  parentChunkId?: string;
+  
+  // Position information
+  startLine: number;
+  endLine: number;
+  startColumn?: number;
+  endColumn?: number;
+  
+  // Content
+  codeContent: string;
+  cleanedContent?: string;
+  
+  // Tree-sitter extracted metadata
+  nodeType: string;
+  nodeName?: string;
+  signature?: string;
+  
+  // Classification metadata
+  purposeCategory?: string;
+  complexityScore?: number;
+  cognitiveComplexity?: number;
+  
+  // Rich flags
+  hasDocstring: boolean;
+  hasErrorHandling: boolean;
+  hasTests: boolean;
+  isExported: boolean;
+  isAsync: boolean;
+  isGenerator: boolean;
+  isStatic: boolean;
+  
+  // Indexing
+  embeddingVersion?: string;
+  embeddedAt?: Date;
+  qdrantPointId?: string;
+  vectorId?: string;
+  
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-// Chunk metadata
-export interface ChunkMetadata {
-  documentType: string;
-  sourceType: string;
-  sourceId: string;
-  projectId: string;
-  title: string;
-  path?: string;
+// Code chunk metadata (aligned with new schema)
+export interface CodeChunkMetadata {
+  repositoryId: string;
+  filePath: string;
   language?: string;
-  author?: string;
+  framework?: string;
+  projectId: string;
+  
+  // Tree-sitter metadata
+  nodeType: string;
+  nodeName?: string;
+  signature?: string;
+  
+  // Classification
+  purposeCategory?: string;
+  complexityScore?: number;
+  cognitiveComplexity?: number;
+  
+  // Flags
+  hasDocstring: boolean;
+  hasErrorHandling: boolean;
+  hasTests: boolean;
+  isExported: boolean;
+  isAsync: boolean;
+  isGenerator: boolean;
+  isStatic: boolean;
+  
+  // Position
+  startLine: number;
+  endLine: number;
+  startColumn?: number;
+  endColumn?: number;
+  
   createdAt: string;
   updatedAt: string;
   tags?: string[];
   customFields?: Record<string, any>;
-  // Neo4j graph metadata
-  graphNodeId?: string;
-  graphRelationshipCount?: number;
-  graphCentralityScore?: number;
 }
 
-// Vector record for storage
+// Qdrant point payload (exact match to your schema)
+export interface QdrantPayload {
+  // Identifiers (link back to PostgreSQL)
+  chunk_id: string;
+  file_id: string;
+  repository_id: string;
+  
+  // Searchable metadata (indexed)
+  node_type: string;
+  node_name: string;
+  file_path: string;
+  language: string;
+  framework?: string;
+  
+  // Classification (indexed)
+  purpose_category: string;
+  domain_tags: string[];
+  patterns: string[]; // design patterns detected
+  
+  // Hierarchical information
+  parent_chunk_id?: string;
+  depth_level: number; // 0=file, 1=class, 2=method, etc.
+  
+  // Code characteristics (for filtering)
+  complexity_score: number;
+  line_count: number;
+  token_count: number;
+  
+  // Boolean filters
+  has_docstring: boolean;
+  has_error_handling: boolean;
+  has_tests: boolean;
+  is_exported: boolean;
+  is_async: boolean;
+  
+  // Relationship counts (for ranking)
+  num_callers: number;
+  num_callees: number;
+  num_imports: number;
+  
+  // Text snippets for context
+  signature?: string;
+  docstring_summary?: string;
+  first_line_comment?: string;
+  
+  // Timestamps
+  indexed_at: string;
+  file_modified_at: string;
+}
+
+// Vector record for storage (enhanced with multi-vector support)
 export interface VectorRecord {
   id: string;
-  values: number[];
-  metadata: VectorMetadata;
+  vectors: {
+    code?: number[];
+    documentation?: number[];
+  };
+  payload: QdrantPayload;
+  // Legacy support
+  values?: number[];
+  metadata?: VectorMetadata;
   sparseValues?: {
     indices: number[];
     values: number[];
   };
 }
 
-// Vector metadata (optimized for search)
+// Qdrant-optimized vector metadata (matches QDrantPayload)
 export interface VectorMetadata {
-  documentId: string;
+  // Identifiers (link back to PostgreSQL)
+  chunk_id: string;
+  file_id: string;
+  repository_id: string;
+  
+  // Searchable metadata (indexed)
+  node_type: string;
+  node_name: string;
+  file_path: string;
+  language: string;
+  framework?: string;
+  
+  // Classification (indexed)
+  purpose_category: string;
+  domain_tags: string[];
+  patterns: string[]; // design patterns detected
+  
+  // Hierarchical information
+  parent_chunk_id?: string;
+  depth_level: number; // 0=file, 1=class, 2=method, etc.
+  
+  // Code characteristics (for filtering)
+  complexity_score: number;
+  line_count: number;
+  token_count: number;
+  
+  // Boolean filters
+  has_docstring: boolean;
+  has_error_handling: boolean;
+  has_tests: boolean;
+  is_exported: boolean;
+  is_async: boolean;
+  
+  // Relationship counts (for ranking)
+  num_callers: number;
+  num_callees: number;
+  num_imports: number;
+  
+  // Text snippets for context
+  signature?: string;
+  docstring_summary?: string;
+  first_line_comment?: string;
+  
+  // Timestamps
+  indexed_at: string;
+  file_modified_at: string;
+}
+
+// Legacy VectorMetadata for backward compatibility (deprecated)
+export interface LegacyVectorMetadata {
   chunkId: string;
+  fileId: string;
+  repositoryId: string;
   projectId: string;
-  documentType: string;
-  sourceType: string;
-  sourceId: string;
-  title: string;
-  content: string; // Store content for retrieval
-  path?: string;
+  filePath: string;
+  content: string;
   language?: string;
-  author?: string;
+  framework?: string;
   createdAt: string;
   updatedAt: string;
   tags?: string[];
-  tokens: number;
-  chunkIndex: number;
-  totalChunks: number;
-  // AST-specific metadata
-  astNodeType?: ASTNodeType;
-  functionName?: string;
-  className?: string;
-  methodName?: string;
-  parameters?: string[];
-  returnType?: string;
-  visibility?: 'public' | 'private' | 'protected';
-  isStatic?: boolean;
-  isAsync?: boolean;
-  complexity?: number;
-  dependencies?: string[];
-  startLine?: number;
-  endLine?: number;
+  nodeType: string;
+  nodeName?: string;
+  signature?: string;
+  purposeCategory?: string;
+  complexityScore?: number;
+  cognitiveComplexity?: number;
+  hasDocstring: boolean;
+  hasErrorHandling: boolean;
+  hasTests: boolean;
+  isExported: boolean;
+  isAsync: boolean;
+  isGenerator: boolean;
+  isStatic: boolean;
+  startLine: number;
+  endLine: number;
+  startColumn?: number;
+  endColumn?: number;
 }
 
 // Embedding request
@@ -137,8 +330,14 @@ export interface EmbeddingResponse {
   };
 }
 
-// Vector search query
+// Enhanced vector search query (supports multi-vector)
 export interface VectorSearchQuery {
+  // Multi-vector support
+  vectors?: {
+    code?: number[];
+    documentation?: number[];
+  };
+  // Legacy single vector
   vector?: number[];
   text?: string;
   topK: number;
@@ -146,10 +345,89 @@ export interface VectorSearchQuery {
   includeMetadata?: boolean;
   includeValues?: boolean;
   namespace?: string;
+  
+  // Vector type preference for multi-vector search
+  vectorType?: 'code' | 'documentation' | 'both';
+  
+  // Search strategy
+  strategy?: 'semantic' | 'hybrid' | 'keyword';
 }
 
-// Vector search filter
+// Qdrant-optimized vector search filter
 export interface VectorFilter {
+  // Repository and file filters
+  repository_id?: string | string[];
+  file_id?: string | string[];
+  file_path?: string | { $regex?: string };
+  
+  // Node type and classification
+  node_type?: string | string[];
+  node_name?: string | string[];
+  purpose_category?: string | string[];
+  domain_tags?: string | string[];
+  patterns?: string | string[];
+  
+  // Language and framework
+  language?: string | string[];
+  framework?: string | string[];
+  
+  // Hierarchy
+  parent_chunk_id?: string | string[];
+  depth_level?: number | {
+    $gte?: number;
+    $lte?: number;
+  };
+  
+  // Code characteristics
+  complexity_score?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  line_count?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  token_count?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  
+  // Boolean flags
+  has_docstring?: boolean;
+  has_error_handling?: boolean;
+  has_tests?: boolean;
+  is_exported?: boolean;
+  is_async?: boolean;
+  
+  // Relationship counts
+  num_callers?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  num_callees?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  num_imports?: {
+    $gte?: number;
+    $lte?: number;
+  };
+  
+  // Time-based filters
+  indexed_at?: {
+    $gte?: string;
+    $lte?: string;
+  };
+  file_modified_at?: {
+    $gte?: string;
+    $lte?: string;
+  };
+  
+  [key: string]: any;
+}
+
+// Legacy vector filter for backward compatibility
+export interface LegacyVectorFilter {
   projectId?: string | string[];
   documentType?: string | string[];
   sourceType?: string | string[];
@@ -157,18 +435,9 @@ export interface VectorFilter {
   language?: string | string[];
   author?: string | string[];
   tags?: string | string[];
-  createdAt?: {
-    $gte?: string;
-    $lte?: string;
-  };
-  updatedAt?: {
-    $gte?: string;
-    $lte?: string;
-  };
-  path?: {
-    $regex?: string;
-  };
-  // AST-specific filters
+  createdAt?: { $gte?: string; $lte?: string; };
+  updatedAt?: { $gte?: string; $lte?: string; };
+  path?: { $regex?: string; };
   astNodeType?: ASTNodeType | ASTNodeType[];
   functionName?: string | string[];
   className?: string | string[];
@@ -176,27 +445,24 @@ export interface VectorFilter {
   visibility?: ('public' | 'private' | 'protected')[];
   isStatic?: boolean;
   isAsync?: boolean;
-  complexity?: {
-    $gte?: number;
-    $lte?: number;
-  };
+  complexity?: { $gte?: number; $lte?: number; };
   dependencies?: string | string[];
-  startLine?: {
-    $gte?: number;
-    $lte?: number;
-  };
-  endLine?: {
-    $gte?: number;
-    $lte?: number;
-  };
+  startLine?: { $gte?: number; $lte?: number; };
+  endLine?: { $gte?: number; $lte?: number; };
   [key: string]: any;
 }
 
-// Vector search result
+// Enhanced vector search result (supports multi-vector)
 export interface VectorSearchResult {
   id: string;
   score: number;
-  metadata: VectorMetadata;
+  payload: QdrantPayload;
+  vectors?: {
+    code?: number[];
+    documentation?: number[];
+  };
+  // Legacy support
+  metadata?: VectorMetadata;
   values?: number[];
 }
 
@@ -232,8 +498,8 @@ export enum ASTNodeType {
   OTHER = 'other'
 }
 
-// AST chunk metadata
-export interface ASTChunkMetadata extends ChunkMetadata {
+// AST chunk metadata (extends CodeChunkMetadata with additional AST-specific fields)
+export interface ASTChunkMetadata extends Omit<CodeChunkMetadata, 'hasDocstring' | 'hasErrorHandling' | 'hasTests' | 'isExported' | 'isAsync' | 'isGenerator' | 'isStatic'> {
   astNodeType?: ASTNodeType;
   functionName?: string;
   className?: string;
@@ -241,12 +507,18 @@ export interface ASTChunkMetadata extends ChunkMetadata {
   parameters?: string[];
   returnType?: string;
   visibility?: 'public' | 'private' | 'protected';
-  isStatic?: boolean;
+  
+  // Override boolean flags to be optional for AST metadata
+  hasDocstring?: boolean;
+  hasErrorHandling?: boolean;
+  hasTests?: boolean;
+  isExported?: boolean;
   isAsync?: boolean;
+  isGenerator?: boolean;
+  isStatic?: boolean;
+  
   complexity?: number;
   dependencies?: string[];
-  startLine?: number;
-  endLine?: number;
   syntaxTree?: any; // Simplified AST representation
 }
 
@@ -265,7 +537,7 @@ export interface ChunkingConfig {
 
 // Chunking result
 export interface ChunkingResult {
-  chunks: DocumentChunk[];
+  chunks: CodeChunk[];
   totalChunks: number;
   totalTokens: number;
   strategy: ChunkingStrategy;
@@ -374,12 +646,12 @@ export interface IDocumentProcessor {
   chunkDocuments(documents: Array<{ id: string; content: string }>, config: ChunkingConfig): Promise<Map<string, ChunkingResult>>;
 
   // Embedding
-  embedChunks(chunks: DocumentChunk[]): Promise<VectorRecord[]>;
-  embedDocument(documentId: string, content: string, metadata: ChunkMetadata): Promise<VectorRecord[]>;
+  embedChunks(chunks: CodeChunk[]): Promise<VectorRecord[]>;
+  embedDocument(documentId: string, content: string, metadata: CodeChunkMetadata): Promise<VectorRecord[]>;
 
   // Processing pipeline
-  processDocument(documentId: string, content: string, metadata: ChunkMetadata): Promise<{
-    chunks: DocumentChunk[];
+  processDocument(documentId: string, content: string, metadata: CodeChunkMetadata): Promise<{
+    chunks: CodeChunk[];
     vectors: VectorRecord[];
     stats: {
       totalChunks: number;
@@ -392,7 +664,7 @@ export interface IDocumentProcessor {
   processDocuments(documents: Array<{
     id: string;
     content: string;
-    metadata: ChunkMetadata;
+    metadata: CodeChunkMetadata;
   }>): Promise<Map<string, VectorRecord[]>>;
 }
 
@@ -425,16 +697,69 @@ export interface VectorSearchOptions {
   rerank?: boolean;
 }
 
-// Hybrid search query
+// Hybrid search query (enhanced)
 export interface HybridSearchQuery {
   text?: string;
+  vectors?: {
+    code?: number[];
+    documentation?: number[];
+  };
+  // Legacy single vector
   vector?: number[];
   keywords?: string[];
   filters?: VectorFilter;
   weights?: {
     semantic: number;
     keyword: number;
+    code?: number;
+    documentation?: number;
   };
   options?: VectorSearchOptions;
 }
+
+// Default Qdrant configuration
+export const DEFAULT_QDRANT_CONFIG: QdrantCollectionConfig = {
+  name: 'code_embeddings',
+  vectors: {
+    code: {
+      size: 1536, // OpenAI ada-002
+      distance: 'Cosine'
+    },
+    documentation: {
+      size: 1536, // Separate vector for docs
+      distance: 'Cosine'
+    }
+  },
+  optimizers_config: {
+    default_segment_number: 2,
+    indexing_threshold: 10000
+  }
+};
+
+// Default Qdrant indexes configuration
+export const DEFAULT_QDRANT_INDEXES: QdrantIndexesConfig = {
+  keyword_indexes: [
+    'node_type',
+    'purpose_category',
+    'language',
+    'framework',
+    'file_path'
+  ],
+  keyword_array_indexes: [
+    'domain_tags',
+    'patterns'
+  ],
+  numeric_indexes: [
+    'complexity_score',
+    'line_count',
+    'num_callers',
+    'depth_level'
+  ],
+  boolean_indexes: [
+    'has_docstring',
+    'has_error_handling',
+    'is_exported',
+    'is_async'
+  ]
+};
 

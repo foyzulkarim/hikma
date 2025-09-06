@@ -21,3 +21,22 @@ export { knowledgeRoutes } from './api/knowledge.routes';
 // Export ingestion components
 export * from './ingestion/connectors/base-connector';
 export * from './ingestion/connectors/git-connector';
+
+// Smart Retrieval System Exports
+export * from './services/query-classifier.service';
+export * from './services/query-processor.service';
+export * from './services/graph-retrieval.service';
+export * from './services/result-fusion.service';
+export * from './services/personalization.service';
+export * from './services/search-analytics.service';
+export * from './services/search-cache.service';
+export * from './services/smart-retrieval-orchestrator.service';
+
+// Strategies
+export * from './strategies';
+
+// Smart Retrieval Types
+export * from './types/smart-retrieval';
+
+// Main orchestrator for easy access
+export { SmartRetrievalOrchestratorService as SmartRetrieval } from './services/smart-retrieval-orchestrator.service';

@@ -4,7 +4,7 @@ export enum EmbeddingModel {
   OPENAI_TEXT_EMBEDDING_3_SMALL = 'text-embedding-3-small',
   OPENAI_TEXT_EMBEDDING_3_LARGE = 'text-embedding-3-large',
   LM_STUDIO_EMBEDDING = 'text-embedding-nomic-embed-text',
-  OLLAMA_EMBEDDING = 'nomic-embed-text',
+  OLLAMA_EMBEDDING = 'mxbai-embed-large',
 }
 
 // Vector store types

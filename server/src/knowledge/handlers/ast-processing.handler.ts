@@ -46,10 +46,18 @@ export class ASTProcessingHandler {
       }
 
       // Parse the code with AST
+      const language = this.getLanguageFromPath(event.filePath, event.language);
+      logger.info(`Parsing ${event.filePath} as language: ${language}`);
+      
       const parseResult = await astParserService.parseCode(
         event.content,
-        this.getLanguageFromPath(event.filePath, event.language)
+        language
       );
+      
+      logger.info(`Parse result for ${event.filePath}: chunks=${parseResult.chunks.length}, errors=${parseResult.errors.length}`);
+      if (parseResult.errors.length > 0) {
+        logger.warn(`Parse errors for ${event.filePath}:`, parseResult.errors);
+      }
 
       if (!parseResult.chunks || parseResult.chunks.length === 0) {
         const errorMsg = parseResult.errors.length > 0 ? parseResult.errors.join(', ') : 'No chunks found';

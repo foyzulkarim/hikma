@@ -22,7 +22,7 @@ export { knowledgeRoutes } from './api/knowledge.routes';
 export * from './ingestion/connectors/base-connector';
 export * from './ingestion/connectors/git-connector';
 
-// Smart Retrieval System Exports
+// Smart Retrieval System Exports (only export what's not in ./services)
 export * from './services/query-classifier.service';
 export * from './services/query-processor.service';
 export * from './services/graph-retrieval.service';
@@ -35,8 +35,7 @@ export * from './services/smart-retrieval-orchestrator.service';
 // Strategies
 export * from './strategies';
 
-// Smart Retrieval Types
-export * from './types/smart-retrieval';
+// Smart Retrieval Types are exported through services to avoid conflicts
 
 // Main orchestrator for easy access
 export { SmartRetrievalOrchestratorService as SmartRetrieval } from './services/smart-retrieval-orchestrator.service';

@@ -77,7 +77,9 @@ export class ChunkSyncService {
       if (projectId) {
         whereClause.file = {
           repository: {
-            projectId: projectId,
+            dataSource: {
+              projectId: projectId,
+            },
           },
         };
       }
@@ -169,7 +171,8 @@ export class ChunkSyncService {
     chunks: any[],
     result: SyncResult
   ): Promise<void> {
-    const promises = chunks.map(async (chunk) => {
+    // Process chunks sequentially to fail fast on embedding errors
+    for (const chunk of chunks) {
       try {
         result.processed++;
         
@@ -218,11 +221,11 @@ export class ChunkSyncService {
           },
           'Failed to sync chunk'
         );
+        
+        // Fail fast: throw the error to stop processing remaining chunks
+        throw error;
       }
-    });
-
-    // Wait for all chunks in the batch to complete
-    await Promise.all(promises);
+    }
   }
 
   /**

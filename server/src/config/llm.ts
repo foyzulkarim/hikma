@@ -17,7 +17,7 @@ const openaiConfig = {
 const ollamaConfig = {
   baseURL: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
   model: process.env.OLLAMA_MODEL || 'llama2',
-  embeddingModel: process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text',
+  embeddingModel: process.env.OLLAMA_EMBEDDING_MODEL || 'mxbai-embed-large',
   timeout: parseInt(process.env.OLLAMA_TIMEOUT || '120000', 10),
   maxRetries: parseInt(process.env.OLLAMA_MAX_RETRIES || '3', 10),
 };
@@ -49,6 +49,54 @@ export const lmStudio = new OpenAI({
 
 // LLM Provider types
 export type LLMProvider = 'openai' | 'ollama' | 'lm-studio';
+
+// Provider validation and configuration
+function validateLLMProvider(): LLMProvider {
+  const provider = process.env.LLM_PROVIDER as LLMProvider;
+  
+  if (!provider) {
+    throw new Error(
+      'LLM_PROVIDER environment variable is required. Set it to one of: openai, ollama, lm-studio'
+    );
+  }
+  
+  const validProviders: LLMProvider[] = ['openai', 'ollama', 'lm-studio'];
+  if (!validProviders.includes(provider)) {
+    throw new Error(
+      `Invalid LLM_PROVIDER: ${provider}. Must be one of: ${validProviders.join(', ')}`
+    );
+  }
+  
+  // Validate required configuration for each provider
+  switch (provider) {
+    case 'openai':
+      if (!openaiConfig.apiKey) {
+        throw new Error(
+          'OPENAI_API_KEY is required when LLM_PROVIDER=openai'
+        );
+      }
+      break;
+    case 'ollama':
+      if (!ollamaConfig.baseURL) {
+        throw new Error(
+          'OLLAMA_BASE_URL is required when LLM_PROVIDER=ollama'
+        );
+      }
+      break;
+    case 'lm-studio':
+      if (!lmStudioConfig.baseURL) {
+        throw new Error(
+          'LM_STUDIO_BASE_URL is required when LLM_PROVIDER=lm-studio'
+        );
+      }
+      break;
+  }
+  
+  return provider;
+}
+
+// Get the configured provider
+export const configuredProvider = validateLLMProvider();
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'function';
@@ -99,33 +147,35 @@ export class LLMManager {
 
   public async connect(): Promise<void> {
     try {
-      // Try LM Studio first (for embeddings)
-      try {
-        await this.testLMStudioConnection();
-        this.provider = 'lm-studio';
-        this.isConnected = true;
-        logger.info('LM Studio LLM connected successfully');
-        return;
-      } catch (lmError) {
-        logger.debug({ error: lmError }, 'LM Studio connection failed, trying OpenAI');
+      // Use explicitly configured provider - no fallbacks
+      this.provider = configuredProvider;
+      
+      switch (this.provider) {
+        case 'openai':
+          await this.testOpenAIConnection();
+          logger.info('OpenAI LLM connected successfully');
+          break;
+        case 'ollama':
+          await this.testOllamaConnection();
+          logger.info('Ollama LLM connected successfully');
+          break;
+        case 'lm-studio':
+          await this.testLMStudioConnection();
+          logger.info('LM Studio LLM connected successfully');
+          break;
+        default:
+          throw new Error(`Unsupported LLM provider: ${this.provider}`);
       }
-
-      // Test OpenAI connection
-      if (openaiConfig.apiKey) {
-        await this.testOpenAIConnection();
-        this.provider = 'openai';
-        this.isConnected = true;
-        logger.info('OpenAI LLM connected successfully');
-      } else {
-        // Fallback to Ollama if no OpenAI key
-        await this.testOllamaConnection();
-        this.provider = 'ollama';
-        this.isConnected = true;
-        logger.info('Ollama LLM connected successfully');
-      }
+      
+      this.isConnected = true;
     } catch (error) {
-      logger.error({ error }, 'Failed to connect to LLM provider');
-      throw error;
+      logger.error(
+        { error, provider: this.provider },
+        `Failed to connect to ${this.provider} LLM provider. Check your configuration and ensure the service is running.`
+      );
+      throw new Error(
+        `LLM connection failed for provider '${this.provider}': ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -133,7 +183,15 @@ export class LLMManager {
     try {
       await this.openaiClient.models.list();
     } catch (error) {
-      throw new Error(`OpenAI connection failed: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `OpenAI connection failed: ${errorMessage}\n` +
+        `Configuration: API Base URL: ${openaiConfig.baseURL}\n` +
+        `Please verify:\n` +
+        `- OPENAI_API_KEY is set correctly\n` +
+        `- OPENAI_API_BASE is accessible (${openaiConfig.baseURL})\n` +
+        `- Network connectivity to OpenAI services`
+      );
     }
   }
 
@@ -141,10 +199,27 @@ export class LLMManager {
     try {
       const response = await fetch(`${ollamaConfig.baseURL}/api/tags`);
       if (!response.ok) {
-        throw new Error(`Ollama connection failed: ${response.statusText}`);
+        throw new Error(
+          `Ollama server responded with status ${response.status}: ${response.statusText}\n` +
+          `Configuration: Base URL: ${ollamaConfig.baseURL}\n` +
+          `Please verify:\n` +
+          `- Ollama is running on ${ollamaConfig.baseURL}\n` +
+          `- OLLAMA_BASE_URL is set correctly\n` +
+          `- Ollama service is accessible and healthy`
+        );
       }
     } catch (error) {
-      throw new Error(`Ollama connection failed: ${error}`);
+      if (error instanceof Error && error.message.includes('fetch')) {
+        throw new Error(
+          `Cannot connect to Ollama server at ${ollamaConfig.baseURL}\n` +
+          `Please verify:\n` +
+          `- Ollama is installed and running\n` +
+          `- OLLAMA_BASE_URL is correct (current: ${ollamaConfig.baseURL})\n` +
+          `- No firewall blocking the connection\n` +
+          `- Run 'ollama serve' to start the server`
+        );
+      }
+      throw error;
     }
   }
 
@@ -157,10 +232,23 @@ export class LLMManager {
       });
       
       if (!response.data || !response.data[0]?.embedding) {
-        throw new Error('LM Studio embedding test failed');
+        throw new Error(
+          `LM Studio embedding test failed - invalid response format\n` +
+          `Configuration: Base URL: ${lmStudioConfig.baseURL}, Model: ${lmStudioConfig.embeddingModel}\n` +
+          `Please verify the embedding model is loaded in LM Studio`
+        );
       }
     } catch (error) {
-      throw new Error(`Failed to connect to LM Studio: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `LM Studio connection failed: ${errorMessage}\n` +
+        `Configuration: Base URL: ${lmStudioConfig.baseURL}\n` +
+        `Please verify:\n` +
+        `- LM Studio is running with server enabled\n` +
+        `- LM_STUDIO_BASE_URL is correct (current: ${lmStudioConfig.baseURL})\n` +
+        `- An embedding model is loaded in LM Studio\n` +
+        `- LM Studio server is accessible on the configured port`
+      );
     }
   }
 
@@ -221,7 +309,7 @@ export class LLMService {
   constructor() {
     this.openaiClient = llmManager.getClient();
     this.lmStudioClient = llmManager.getLMStudioClient();
-    this.provider = llmManager.getProvider();
+    this.provider = configuredProvider;
   }
 
   async generateCompletion(

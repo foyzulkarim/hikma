@@ -7,8 +7,14 @@ import { GitService } from '@/shared/services/git.service';
 import { TempDirectoryManager } from '@/shared/utils/temp-directory.util';
 import { logger } from '@/core/utils/logger';
 import { ValidationError, ExternalServiceError } from '@/core/errors/app-error';
-import { ASTProcessingHandler } from '@/knowledge/handlers/ast-processing.handler';
+import { ASTProcessingHandler, ASTProcessingEvent } from '@/knowledge/handlers/ast-processing.handler';
 import { chunkSyncService } from '@/knowledge/services/chunk-sync.service';
+import { PrismaClient } from '@prisma/client';
+import { Neo4jChunkService, Neo4jChunkNode, ChunkRelationshipType } from '@/knowledge/services/neo4j-chunk.service';
+import { EmbeddingService } from '@/knowledge/services/embedding.service';
+import { CodeChunk as EmbeddingCodeChunk } from '@/core/types/embeddings';
+import { MethodMetricsService } from '@/shared/services/method-metrics.service';
+import { ChunkTransformer } from '../utils/chunk-transformer.util';
 
 export type SyncErrorCode = 
   | 'ACCESS_DENIED'
@@ -50,17 +56,95 @@ export interface SyncStrategy {
   source: 'url' | 'path' | 'none';
 }
 
+export interface SetupResult {
+  project: ProjectEntity;
+  syncId: string;
+  strategy: SyncStrategy;
+  repositoryInfo: any;
+  correlationId: string;
+}
+
+export interface CloneResult {
+  success: boolean;
+  repositoryPath?: string;
+  tempPath?: string;
+  cleanupRequired?: boolean;
+}
+
+export interface CodeChunk {
+  id: string;
+  filePath: string;
+  content: string;
+  language: string;
+  metadata: {
+    nodeType: string;
+    nodeName?: string;
+    startLine: number;
+    endLine: number;
+    signature?: string;
+  };
+  projectId: string;
+}
+
+export interface PostgresSaveResult {
+  success: boolean;
+  savedChunks: number;
+  errors: string[];
+}
+
+export interface Neo4jSaveResult {
+  success: boolean;
+  savedNodes: number;
+  savedRelationships: number;
+  errors: string[];
+}
+
+export interface EmbeddingResult {
+  chunkId: string;
+  embedding: number[];
+  success: boolean;
+  error?: string;
+}
+
+export interface QdrantSaveResult {
+  success: boolean;
+  processed: number;
+  successful: number;
+  failed: number;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface FinalizeResult {
+  status: 'success' | 'in_progress';
+  message: string;
+  syncId: string;
+  tempPath?: string;
+  cleanupRequired?: boolean;
+}
+
 export class ProjectSyncService {
   private ghCliService: GhCliService;
   private gitService: GitService;
   private tempManager: TempDirectoryManager;
   private astProcessingHandler: ASTProcessingHandler;
+  private prisma: PrismaClient;
+  private neo4jChunkService: Neo4jChunkService;
+  private embeddingService: EmbeddingService;
+  private metricsService: MethodMetricsService;
 
-  constructor(private projectRepository: IProjectRepository) {
+  constructor(
+    private projectRepository: IProjectRepository,
+    metricsService?: MethodMetricsService
+  ) {
     this.ghCliService = new GhCliService();
     this.gitService = new GitService();
     this.tempManager = TempDirectoryManager.getInstance();
     this.astProcessingHandler = new ASTProcessingHandler();
+    this.prisma = new PrismaClient();
+    this.neo4jChunkService = new Neo4jChunkService();
+    this.embeddingService = new EmbeddingService();
+    this.metricsService = metricsService || new MethodMetricsService();
   }
 
   /**
@@ -289,6 +373,653 @@ export class ProjectSyncService {
     return { isValid: true, project: accessResult.project };
   }
 
+  private async setupSync(
+    id: string,
+    userId: string,
+    options: SyncOptions,
+    correlationId: string
+  ): Promise<SetupResult> {
+    // Execute validation phase
+    const validationResult = await this.executeValidationPhase(id, userId, correlationId);
+    if (!validationResult.isValid) {
+      throw new ValidationError(validationResult.earlyReturn!.message, correlationId);
+    }
+
+    const project = validationResult.project!;
+
+    // Generate sync ID and update sync status to in_progress
+    const syncId = `sync_${id}_${Date.now()}`;
+    const repositoryInfo = project.getRepositoryInfo();
+    
+    // Update project sync status to in_progress
+    await this.projectRepository.updateSyncStatus(id, {
+      syncStatus: 'in_progress',
+      syncId,
+      lastSyncAt: new Date().toISOString()
+    });
+    
+    logger.info({
+      projectId: id,
+      syncId,
+      repositoryInfo: {
+        url: repositoryInfo?.url,
+        branch: repositoryInfo?.branch,
+        path: repositoryInfo?.path,
+        hasUrl: !!repositoryInfo?.url,
+        hasPath: !!repositoryInfo?.path
+      },
+      correlationId
+    }, 'Generated sync ID, updated sync status to in_progress, and retrieved repository info');
+
+    // Determine sync strategy
+    const strategy = this.determineSyncStrategy(options, repositoryInfo);
+    
+    logger.info({
+      projectId: id,
+      syncId,
+      strategy,
+      correlationId
+    }, 'Sync strategy determined');
+
+    return {
+      project,
+      syncId,
+      strategy,
+      repositoryInfo,
+      correlationId
+    };
+  }
+
+  private async cloneRepository(
+    setupResult: SetupResult,
+    correlationId: string
+  ): Promise<CloneResult> {
+    const { project, syncId, strategy } = setupResult;
+
+    // If no temporary cloning required or not using URL source, use existing path
+    if (!strategy.useTemporaryClone || strategy.source !== 'url') {
+      const repositoryInfo = project.getRepositoryInfo();
+      return {
+        success: true,
+        repositoryPath: strategy.repositoryPath || repositoryInfo?.path || '',
+        cleanupRequired: false
+      };
+    }
+
+    const repositoryInfo = project.getRepositoryInfo();
+    
+    logger.info({
+      projectId: project.id,
+      syncId,
+      repositoryUrl: repositoryInfo?.url,
+      branch: strategy.targetBranch,
+      correlationId
+    }, 'Starting temporary repository clone');
+
+    const cloneResult = await this.cloneToTemporaryDirectory(
+      repositoryInfo?.url!,
+      strategy.targetBranch,
+      correlationId
+    );
+    
+    if (!cloneResult.success) {
+      throw new ExternalServiceError(
+        `Failed to clone repository: ${cloneResult.error}`,
+        correlationId
+      );
+    }
+    
+    // Update sync status with tempPath
+    await this.projectRepository.updateSyncStatus(project.id!, {
+      tempPath: cloneResult.tempDir
+    });
+
+    logger.info({
+      projectId: project.id,
+      syncId,
+      tempPath: cloneResult.tempDir,
+      repositoryUrl: repositoryInfo?.url,
+      branch: strategy.targetBranch,
+      correlationId
+    }, 'Repository cloned to temporary directory successfully');
+
+    return { 
+      success: true, 
+      repositoryPath: cloneResult.tempDir!,
+      tempPath: cloneResult.tempDir, 
+      cleanupRequired: true 
+    };
+  }
+
+  private async processRepository(
+    repositoryPath: string,
+    projectId: string,
+    correlationId: string
+  ): Promise<CodeChunk[]> {
+    const startTime = Date.now();
+    
+    logger.info({
+      projectId,
+      repositoryPath,
+      correlationId
+    }, 'Starting repository AST processing and chunk generation');
+
+    try {
+      // Get all code files from the repository
+      const codeFiles = await this.getCodeFiles(repositoryPath);
+      
+      logger.info({
+        projectId,
+        repositoryPath,
+        totalFiles: codeFiles.length,
+        correlationId
+      }, 'Found code files for processing');
+
+      const chunks: CodeChunk[] = [];
+      let processedFiles = 0;
+      let failedFiles = 0;
+
+      // Process each code file
+      for (const filePath of codeFiles) {
+        try {
+          // Read file content
+          const fs = await import('fs');
+          const content = await fs.promises.readFile(filePath, 'utf-8');
+          const relativePath = filePath.replace(repositoryPath, '').replace(/^\//, '');
+          const language = await this.getLanguageFromPath(filePath);
+
+          // For simplicity, create a single chunk per file for now
+          // TODO: In the future, we could use the AST handler to get more granular chunks
+          const chunkId = `${projectId}-${relativePath}-1-${content.split('\n').length}`;
+          
+          const chunk: CodeChunk = {
+            id: chunkId,
+            filePath: relativePath,
+            content,
+            language,
+            metadata: {
+              nodeType: 'file',
+              nodeName: relativePath.split('/').pop() || '',
+              startLine: 1,
+              endLine: content.split('\n').length,
+              signature: undefined
+            },
+            projectId
+          };
+          
+          chunks.push(chunk);
+          processedFiles++;
+          
+          logger.debug({
+            projectId,
+            filePath: relativePath,
+            processedFiles,
+            totalFiles: codeFiles.length,
+            chunksExtracted: 1,
+            correlationId
+          }, 'Successfully processed file');
+          
+        } catch (fileError) {
+          failedFiles++;
+          logger.error({
+            projectId,
+            filePath: filePath.replace(repositoryPath, ''),
+            error: fileError instanceof Error ? fileError.message : 'Unknown error',
+            correlationId
+          }, 'Failed to process file');
+        }
+      }
+
+      const duration = Date.now() - startTime;
+      
+      logger.info({
+        projectId,
+        repositoryPath,
+        totalFiles: codeFiles.length,
+        processedFiles,
+        failedFiles,
+        totalChunks: chunks.length,
+        duration,
+        correlationId
+      }, 'Repository AST processing completed');
+      
+      return chunks;
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logger.error({
+        projectId,
+        repositoryPath,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'Repository AST processing failed');
+      
+      throw new ExternalServiceError(
+        `Failed to process repository: ${errorMessage}`,
+        correlationId
+      );
+    }
+  }
+
+  private async saveChunksToPostgres(
+    chunks: CodeChunk[],
+    projectId: string,
+    correlationId: string
+  ): Promise<PostgresSaveResult> {
+    const startTime = Date.now();
+    
+    logger.info({
+      projectId,
+      totalChunks: chunks.length,
+      correlationId
+    }, 'Starting PostgreSQL chunk save operation');
+
+    try {
+      // Group chunks by file path for efficient processing
+      const chunksByFile = this.groupChunksByFile(chunks);
+      
+      // Get existing repository or create new one
+      const repository = await this.ensureRepositoryExists(projectId);
+      
+      // Process all file chunks in batches
+      const result = await this.processBatchChunkSave(chunksByFile, repository, correlationId);
+
+      const duration = Date.now() - startTime;
+      
+      logger.info({
+        projectId,
+        totalChunks: chunks.length,
+        savedChunks: result.saved,
+        failedChunks: result.errors.length,
+        duration,
+        correlationId
+      }, 'PostgreSQL chunk save operation completed');
+
+      return {
+        success: result.errors.length === 0 || result.saved > 0,
+        savedChunks: result.saved,
+        errors: result.errors
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logger.error({
+        projectId,
+        totalChunks: chunks.length,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'PostgreSQL chunk save operation failed');
+      
+      return {
+        success: false,
+        savedChunks: 0,
+        errors: [errorMessage]
+      };
+    }
+  }
+
+  private async saveChunksToNeo4j(
+    chunks: CodeChunk[],
+    projectId: string,
+    correlationId: string
+  ): Promise<Neo4jSaveResult> {
+    const startTime = Date.now();
+    
+    logger.info({
+      projectId,
+      totalChunks: chunks.length,
+      correlationId
+    }, 'Starting Neo4j chunk save operation');
+
+    const errors: string[] = [];
+    let savedNodes = 0;
+    let savedRelationships = 0;
+
+    try {
+      // Use ChunkTransformer to convert CodeChunks to Neo4jChunkNodes
+      const neo4jNodes: Neo4jChunkNode[] = ChunkTransformer.toNeo4jFormat(chunks, projectId);
+
+      // Save nodes in batches
+      const batchSize = 100;
+      for (let i = 0; i < neo4jNodes.length; i += batchSize) {
+        const batch = neo4jNodes.slice(i, i + batchSize);
+        
+        try {
+          await this.neo4jChunkService.batchCreateChunkNodes(batch);
+          savedNodes += batch.length;
+          
+          logger.debug({
+            projectId,
+            batchNumber: Math.floor(i / batchSize) + 1,
+            batchSize: batch.length,
+            totalBatches: Math.ceil(neo4jNodes.length / batchSize),
+            correlationId
+          }, 'Neo4j chunk batch saved successfully');
+          
+        } catch (batchError) {
+          const errorMsg = `Failed to save Neo4j chunk batch ${Math.floor(i / batchSize) + 1}: ${batchError instanceof Error ? batchError.message : 'Unknown error'}`;
+          errors.push(errorMsg);
+          logger.error({
+            projectId,
+            batchNumber: Math.floor(i / batchSize) + 1,
+            error: errorMsg,
+            correlationId
+          }, 'Failed to save Neo4j chunk batch');
+        }
+      }
+
+      // TODO: Implement relationship extraction and creation
+      // For now, we'll focus on saving the nodes
+      // Relationships would be created based on code analysis:
+      // - CALLS relationships between functions
+      // - IMPORTS relationships for dependencies
+      // - CONTAINS relationships for classes/methods
+      
+      const duration = Date.now() - startTime;
+      
+      logger.info({
+        projectId,
+        totalChunks: chunks.length,
+        savedNodes,
+        savedRelationships,
+        failedOperations: errors.length,
+        duration,
+        correlationId
+      }, 'Neo4j chunk save operation completed');
+
+      return {
+        success: errors.length === 0 || savedNodes > 0,
+        savedNodes,
+        savedRelationships,
+        errors
+      };
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logger.error({
+        projectId,
+        totalChunks: chunks.length,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'Neo4j chunk save operation failed');
+      
+      errors.push(errorMessage);
+      
+      return {
+        success: false,
+        savedNodes,
+        savedRelationships,
+        errors
+      };
+    }
+  }
+
+  private async generateEmbeddings(
+    chunks: CodeChunk[],
+    correlationId: string
+  ): Promise<EmbeddingResult[]> {
+    const startTime = Date.now();
+    
+    logger.info({
+      totalChunks: chunks.length,
+      correlationId
+    }, 'Starting embedding generation for code chunks');
+
+    try {
+      // Use ChunkTransformer to convert to EmbeddingService format
+      const embeddingChunks: EmbeddingCodeChunk[] = ChunkTransformer.toEmbeddingFormat(chunks);
+      logger.info({
+        totalChunks: chunks.length,
+        correlationId
+      }, 'Converted chunks to embedding format');
+
+      // Generate embeddings using the embedding service
+      const embeddingMap = await this.embeddingService.embedChunks(embeddingChunks);
+
+      // Convert results to our EmbeddingResult format
+      const results: EmbeddingResult[] = chunks.map(chunk => {
+        const embedding = embeddingMap.get(chunk.id);
+        
+        if (embedding) {
+          return {
+            chunkId: chunk.id,
+            embedding,
+            success: true
+          };
+        } else {
+          return {
+            chunkId: chunk.id,
+            embedding: [],
+            success: false,
+            error: 'Failed to generate embedding'
+          };
+        }
+      });
+
+      const successfulEmbeddings = results.filter(r => r.success).length;
+      const failedEmbeddings = results.filter(r => !r.success).length;
+      const duration = Date.now() - startTime;
+
+      logger.info({
+        totalChunks: chunks.length,
+        successfulEmbeddings,
+        failedEmbeddings,
+        duration,
+        correlationId
+      }, 'Completed embedding generation for code chunks');
+
+      return results;
+
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logger.error({
+        totalChunks: chunks.length,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'Failed to generate embeddings for code chunks');
+
+      // Return failed results for all chunks
+      return chunks.map(chunk => ({
+        chunkId: chunk.id,
+        embedding: [],
+        success: false,
+        error: errorMessage
+      }));
+    }
+  }
+
+  private async saveChunksToQdrant(
+    chunks: CodeChunk[],
+    embeddings: EmbeddingResult[],
+    projectId: string,
+    correlationId: string
+  ): Promise<QdrantSaveResult> {
+    const startTime = Date.now();
+    
+    logger.info({
+      projectId,
+      totalChunks: chunks.length,
+      totalEmbeddings: embeddings.length,
+      correlationId
+    }, 'Starting Qdrant chunk save operation');
+
+    try {
+      // Use the existing chunkSyncService to sync chunks to Qdrant
+      // This service will automatically handle embedding generation and Qdrant operations
+      const syncResult = await chunkSyncService.syncChunksToQdrant({
+        projectId,
+        skipExisting: false,
+        batchSize: 10
+      });
+      
+      const duration = Date.now() - startTime;
+      
+      logger.info({
+        projectId,
+        syncResult: {
+          processed: syncResult.processed,
+          successful: syncResult.successful,
+          failed: syncResult.failed,
+          duration: syncResult.duration
+        },
+        totalDuration: duration,
+        correlationId
+      }, 'Qdrant chunk save operation completed');
+      
+      const warnings: string[] = [];
+      const errors: string[] = [];
+      
+      if (syncResult.failed > 0) {
+        const warningMessage = `${syncResult.failed} chunks failed to sync to Qdrant`;
+        warnings.push(warningMessage);
+        
+        if (syncResult.errors && Array.isArray(syncResult.errors)) {
+          errors.push(...syncResult.errors.map(e => e.toString()));
+        }
+        
+        logger.warn({
+          projectId,
+          failedCount: syncResult.failed,
+          errors: syncResult.errors,
+          correlationId
+        }, 'Some chunks failed to sync to Qdrant');
+      }
+      
+      return {
+        success: syncResult.successful > 0,
+        processed: syncResult.processed,
+        successful: syncResult.successful,
+        failed: syncResult.failed,
+        errors,
+        warnings
+      };
+      
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      logger.error({
+        projectId,
+        totalChunks: chunks.length,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'Qdrant chunk save operation failed');
+      
+      return {
+        success: false,
+        processed: 0,
+        successful: 0,
+        failed: chunks.length,
+        errors: [errorMessage],
+        warnings: []
+      };
+    }
+  }
+
+  private async finalizeSync(
+    setupResult: SetupResult,
+    cloneResult: CloneResult,
+    options: SyncOptions,
+    userId: string,
+    correlationId: string,
+    startTime: number
+  ): Promise<FinalizeResult> {
+    const { project, syncId } = setupResult;
+    
+    logger.info({
+      projectId: project.id,
+      syncId,
+      correlationId
+    }, 'Starting sync finalization phase');
+
+    try {
+      // Emit PROJECT_SYNC_STARTED event
+      const repositoryInfo = project.getRepositoryInfo();
+      const event: ProjectSyncStartedEvent = {
+        projectId: project.id!,
+        userId, // Use the actual userId parameter 
+        syncId,
+        repositoryUrl: repositoryInfo?.url,
+        branch: setupResult.strategy.targetBranch || repositoryInfo?.branch,
+        timestamp: new Date().toISOString(),
+        metadata: {
+           force: options.force || false,
+           lastSyncAt: undefined,
+           tempPath: cloneResult.tempPath,
+           useTemporaryClone: setupResult.strategy.useTemporaryClone
+         }
+      };
+      
+      logger.info({
+        projectId: project.id,
+        syncId,
+        eventType: PROJECT_EVENTS.PROJECT_SYNC_STARTED,
+        eventData: {
+          projectId: event.projectId,
+          userId: event.userId,
+          syncId: event.syncId,
+          repositoryUrl: event.repositoryUrl,
+          branch: event.branch,
+          useTemporaryClone: event.metadata?.useTemporaryClone
+        },
+        correlationId
+      }, 'Emitting PROJECT_SYNC_STARTED event');
+      
+      eventBus.emit(PROJECT_EVENTS.PROJECT_SYNC_STARTED, event);
+      
+      const duration = Date.now() - startTime;
+      
+      logger.info({
+        projectId: project.id,
+        syncId,
+        status: 'in_progress',
+        tempPath: cloneResult.tempPath,
+        cleanupRequired: cloneResult.cleanupRequired,
+        duration,
+        correlationId
+      }, 'ProjectSyncService.syncProject finalization completed successfully');
+
+      // Return immediate response (actual sync happens asynchronously)
+      return {
+        status: 'in_progress',
+        message: 'Project sync started successfully',
+        syncId,
+        tempPath: cloneResult.tempPath,
+        cleanupRequired: cloneResult.cleanupRequired
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const duration = Date.now() - startTime;
+      
+      logger.error({
+        projectId: project.id,
+        syncId,
+        error: errorMessage,
+        duration,
+        correlationId
+      }, 'Failed to finalize sync');
+      
+      throw new ExternalServiceError(
+        `Failed to finalize sync: ${errorMessage}`,
+        correlationId
+      );
+    }
+  }
+
   /**
    * Determine repository path for processing
    */
@@ -490,161 +1221,42 @@ export class ProjectSyncService {
 
   async syncProject(id: string, userId: string, options: SyncOptions = {}): Promise<ProjectSyncResult> {
     const correlationId = `sync-service-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-    const startTime = Date.now();
     
-    logger.info({
-      projectId: id,
-      userId,
-      options,
-      correlationId
-    }, 'ProjectSyncService.syncProject started');
+    return await this.metricsService.trackMethodPerformance(
+      'syncProject',
+      async () => {
+        logger.info({
+          projectId: id,
+          userId,
+          options,
+          correlationId
+        }, 'ProjectSyncService.syncProject started');
 
-    try {
-      // Phase 1: Validation
-      const validationResult = await this.executeValidationPhase(id, userId, correlationId);
-      if (!validationResult.isValid) {
-        return validationResult.earlyReturn!;
-      }
+        // Phase 1: Setup & Validation
+        const setupResult = await this.setupSync(id, userId, options, correlationId);
 
-      const project = validationResult.project!;
-
-      // Generate sync ID and update sync status to in_progress
-      const syncId = `sync_${id}_${Date.now()}`;
-      const repositoryInfo = project.getRepositoryInfo();
-      
-      // Update project sync status to in_progress
-      await this.projectRepository.updateSyncStatus(id, {
-        syncStatus: 'in_progress',
-        syncId,
-        lastSyncAt: new Date().toISOString()
-      });
-      
-      logger.info({
-        projectId: id,
-        syncId,
-        repositoryInfo: {
-          url: repositoryInfo?.url,
-          branch: repositoryInfo?.branch,
-          path: repositoryInfo?.path,
-          hasUrl: !!repositoryInfo?.url,
-          hasPath: !!repositoryInfo?.path
-        },
-        correlationId
-      }, 'Generated sync ID, updated sync status to in_progress, and retrieved repository info');
-
-      // Phase 1.5: Strategy Determination
-      const strategy = this.determineSyncStrategy(options, repositoryInfo);
-      
-      logger.info({
-        projectId: id,
-        syncId,
-        strategy,
-        correlationId
-      }, 'Sync strategy determined');
-
-      // Phase 2: Clone (if needed)
-      const cloneResult = await this.executeClonePhase(project, strategy, syncId, correlationId);
-      if (!cloneResult.success) {
-        return cloneResult.errorResponse!;
-      }
-
-      const tempPath = cloneResult.tempPath;
-      const cleanupRequired = cloneResult.cleanupRequired || false;
-
-      // Phase 2: Repository Processing
-      const repositoryPathInfo = this.determineRepositoryPath(tempPath, repositoryInfo);
-      if (repositoryPathInfo.path) {
-        logger.info({ 
-          projectId: id, 
-          repositoryPath: repositoryPathInfo.path,
-          source: repositoryPathInfo.source,
-          correlationId 
-        }, 'Starting repository processing');
+        // Phase 2: Clone Repository  
+        const cloneResult = await this.cloneRepository(setupResult, correlationId);
         
-        const processingResult = await this.executeProcessingPhase(id, repositoryPathInfo.path, correlationId);
-        if (!processingResult.success) {
-          return processingResult.errorResponse!;
-        }
-      } else {
-        logger.warn({ projectId: id, correlationId }, 'No repository path available for processing');
-      }
-
-      // Phase 4: Qdrant Sync
-      await this.executeQdrantSyncPhase(id, correlationId);
-
-      // Phase 5: Event Emission
-      const event: ProjectSyncStartedEvent = {
-        projectId: id,
-        userId,
-        syncId,
-        repositoryUrl: repositoryInfo?.url,
-        branch: strategy.targetBranch || repositoryInfo?.branch,
-        timestamp: new Date().toISOString(),
-        metadata: {
-           force: options.force || false,
-           lastSyncAt: undefined,
-           tempPath,
-           useTemporaryClone: strategy.useTemporaryClone
-         }
-      };
-      
-      logger.info({
-        projectId: id,
-        syncId,
-        eventType: PROJECT_EVENTS.PROJECT_SYNC_STARTED,
-        eventData: {
-          projectId: event.projectId,
-          userId: event.userId,
-          syncId: event.syncId,
-          repositoryUrl: event.repositoryUrl,
-          branch: event.branch,
-          useTemporaryClone: event.metadata?.useTemporaryClone
-        },
-        correlationId
-      }, 'Emitting PROJECT_SYNC_STARTED event');
-      
-      eventBus.emit(PROJECT_EVENTS.PROJECT_SYNC_STARTED, event);
-      
-      const duration = Date.now() - startTime;
-      
-      logger.info({
-        projectId: id,
-        syncId,
-        status: 'in_progress',
-        tempPath,
-        cleanupRequired,
-        duration,
-        correlationId
-      }, 'ProjectSyncService.syncProject completed successfully');
-
-      // Return immediate response (actual sync happens asynchronously)
-      return {
-        status: 'in_progress',
-        message: 'Project sync started successfully',
-        syncId,
-        tempPath,
-        cleanupRequired
-      };
-    } catch (unexpectedError) {
-      // Safety net for truly unexpected runtime exceptions
-      logger.error({
-        projectId: id,
-        userId,
-        correlationId,
-        error: unexpectedError instanceof Error ? unexpectedError.message : 'Unknown error',
-        stack: unexpectedError instanceof Error ? unexpectedError.stack : undefined
-      }, 'Unexpected error in syncProject - system-level exception caught');
-      
-      return this.createErrorResponse(
-        id,
-        userId,
-        unexpectedError instanceof Error ? unexpectedError : new Error('Unexpected system error'),
-        correlationId,
-        'validation',
-        undefined,
-        'unexpected_error'
-      );
-    }
+        // Phase 3: Parse Codebase
+        const chunks = await this.processRepository(cloneResult.repositoryPath!, setupResult.project.id!, correlationId);
+        
+        // Phase 4: Save to Databases
+        await this.saveChunksToPostgres(chunks, setupResult.project.id!, correlationId);
+        await this.saveChunksToNeo4j(chunks, setupResult.project.id!, correlationId);
+        
+        // Phase 5: Generate Embeddings & Save to Qdrant
+        const embeddings = await this.generateEmbeddings(chunks, correlationId);
+        await this.saveChunksToQdrant(chunks, embeddings, setupResult.project.id!, correlationId);
+        
+        // Phase 6: Finalize
+        const startTime = Date.now(); // For finalizeSync compatibility
+        const finalResult = await this.finalizeSync(setupResult, cloneResult, options, userId, correlationId, startTime);
+        
+        return finalResult as ProjectSyncResult;
+      },
+      correlationId
+    );
   }
 
   async getSyncStatus(syncId: string, userId: string): Promise<ProjectSyncResult> {
@@ -945,7 +1557,7 @@ export class ProjectSyncService {
       const relativePath = path.relative(repositoryPath, filePath);
       
       // Determine file language from extension
-      const language = this.getLanguageFromPath(filePath);
+      const language = await this.getLanguageFromPath(filePath);
       
       // Process with AST handler
       const result = await this.astProcessingHandler.handleASTProcessing({
@@ -1022,8 +1634,8 @@ export class ProjectSyncService {
   /**
    * Get programming language from file path
    */
-  private getLanguageFromPath(filePath: string): string {
-    const path = require('path');
+  private async getLanguageFromPath(filePath: string): Promise<string> {
+    const path = await import('path');
     const ext = path.extname(filePath).toLowerCase();
     
     const languageMap: Record<string, string> = {
@@ -1048,5 +1660,182 @@ export class ProjectSyncService {
     };
     
     return languageMap[ext] || 'text';
+  }
+
+  // Helper methods for PostgreSQL chunk save decomposition
+
+  /**
+   * Group chunks by file path for efficient processing
+   * @param chunks - Array of CodeChunk objects
+   * @returns Map with filePath as key, chunks array as value
+   */
+  private groupChunksByFile(chunks: CodeChunk[]): Map<string, CodeChunk[]> {
+    const chunksByFile = new Map<string, CodeChunk[]>();
+    for (const chunk of chunks) {
+      if (!chunksByFile.has(chunk.filePath)) {
+        chunksByFile.set(chunk.filePath, []);
+      }
+      chunksByFile.get(chunk.filePath)!.push(chunk);
+    }
+    return chunksByFile;
+  }
+
+  /**
+   * Get existing repository or create new one
+   * @param projectId - Project ID
+   * @returns Repository entity
+   */
+  private async ensureRepositoryExists(projectId: string): Promise<any> {
+    // Get or create repository record
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: { dataSources: true }
+    });
+
+    if (!project || project.dataSources.length === 0) {
+      throw new Error(`Project ${projectId} not found or has no data sources`);
+    }
+
+    const dataSourceId = project.dataSources[0].id;
+
+    let repository = await this.prisma.repository.findFirst({
+      where: { dataSourceId }
+    });
+
+    if (!repository) {
+      repository = await this.prisma.repository.create({
+        data: {
+          dataSourceId,
+          name: project.name,
+          url: project.repositoryUrl || null
+        }
+      });
+    }
+
+    return repository;
+  }
+
+  /**
+   * Process all file chunks in batches
+   * @param chunksByFile - Grouped chunks by file path
+   * @param repository - Repository entity
+   * @param correlationId - Correlation ID for tracking
+   * @returns Save result with success metrics
+   */
+  private async processBatchChunkSave(
+    chunksByFile: Map<string, CodeChunk[]>, 
+    repository: any, 
+    correlationId: string
+  ): Promise<{saved: number, errors: string[]}> {
+    const errors: string[] = [];
+    let savedChunks = 0;
+
+    // Process each file and its chunks
+    for (const [filePath, fileChunks] of chunksByFile) {
+      try {
+        // Create CodeFile record
+        const codeFile = await this.createCodeFileRecord(filePath, repository, fileChunks[0].language);
+        
+        // Save all chunks for this file
+        const result = await this.saveChunksForFile(fileChunks, codeFile, correlationId);
+        savedChunks += result.saved;
+        errors.push(...result.errors);
+
+      } catch (fileError) {
+        const errorMsg = `Failed to process file ${filePath}: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`;
+        errors.push(errorMsg);
+        logger.error({
+          filePath,
+          error: errorMsg,
+          correlationId
+        }, 'Failed to process file for PostgreSQL save');
+      }
+    }
+
+    return { saved: savedChunks, errors };
+  }
+
+  /**
+   * Find or create CodeFile record
+   * @param filePath - File path
+   * @param repository - Repository entity
+   * @param language - Programming language
+   * @returns CodeFile entity
+   */
+  private async createCodeFileRecord(filePath: string, repository: any, language: string): Promise<any> {
+    // Find existing CodeFile record
+    let codeFile = await this.prisma.codeFile.findFirst({
+      where: {
+        repositoryId: repository.id,
+        filePath
+      }
+    });
+
+    if (!codeFile) {
+      codeFile = await this.prisma.codeFile.create({
+        data: {
+          repositoryId: repository.id,
+          filePath,
+          language,
+          lastModified: new Date()
+        }
+      });
+    }
+
+    return codeFile;
+  }
+
+  /**
+   * Save all chunks for a specific file
+   * @param chunks - Chunks for one file
+   * @param codeFile - CodeFile entity
+   * @param correlationId - Correlation ID for tracking
+   * @returns Save metrics (count saved, errors encountered)
+   */
+  private async saveChunksForFile(
+    chunks: CodeChunk[], 
+    codeFile: any, 
+    correlationId: string
+  ): Promise<{saved: number, errors: string[]}> {
+    const errors: string[] = [];
+    let saved = 0;
+
+    // Create chunks for this file
+    for (const chunk of chunks) {
+      try {
+        await this.prisma.codeChunk.create({
+          data: {
+            fileId: codeFile.id,
+            startLine: chunk.metadata.startLine,
+            endLine: chunk.metadata.endLine,
+            codeContent: chunk.content,
+            nodeType: chunk.metadata.nodeType,
+            nodeName: chunk.metadata.nodeName || null,
+            signature: chunk.metadata.signature || null,
+            hasDocstring: false,
+            hasErrorHandling: false,
+            hasTests: false,
+            isExported: false,
+            isAsync: false,
+            isGenerator: false,
+            isStatic: false
+          }
+        });
+        
+        saved++;
+        
+      } catch (chunkError) {
+        const errorMsg = `Failed to save chunk ${chunk.id}: ${chunkError instanceof Error ? chunkError.message : 'Unknown error'}`;
+        errors.push(errorMsg);
+        logger.error({
+          chunkId: chunk.id,
+          filePath: chunk.filePath,
+          error: errorMsg,
+          correlationId
+        }, 'Failed to save chunk to PostgreSQL');
+      }
+    }
+
+    return { saved, errors };
   }
 }

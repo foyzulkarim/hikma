@@ -76,7 +76,7 @@ export interface SmartSearchResult {
   scores: SearchScores;
   metadata: SmartResultMetadata;
   context?: ResultContext;
-  relationships?: RelationshipInfo[];
+  relationships?: CrossReference[];
 }
 
 export interface SearchScores {

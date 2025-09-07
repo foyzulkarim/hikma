@@ -10,6 +10,10 @@ import { PrismaClient } from '@prisma/client';
 
 const DEFAULT_USER_ID = 'cmf30k5430001dysh7wb84z0q'; // Valid user with OWNER access
 
+const DEFAULT_PROJECT_ID = 'cmf2g108b0001mzqo1c2c24qj';
+
+const OLLAMA_EMBEDDING_MODEL = 'mxbai-embed-large';
+
 async function syncProjectDirect(projectId: string) {
   const prisma = new PrismaClient();
   
@@ -47,7 +51,7 @@ async function syncProjectDirect(projectId: string) {
   }
 }
 
-const projectId = process.argv[2];
+const projectId = DEFAULT_PROJECT_ID;
 
 if (!projectId) {
   console.error('❌ Please provide a project ID');

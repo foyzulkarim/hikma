@@ -9,8 +9,11 @@ export * from './vector-search.strategy';
 export * from './graph-traversal.strategy';
 export * from './hybrid-search.strategy';
 
-// Strategy Types
-export interface SearchStrategy {
+// Import centralized strategy types
+import type { SearchStrategy } from '../types/smart-retrieval';
+
+// Strategy base interface
+export interface StrategyBase {
   name: string;
   description: string;
 }

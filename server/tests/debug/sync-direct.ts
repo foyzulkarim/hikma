@@ -58,10 +58,23 @@ if (!projectId) {
 console.log('🚀 Starting project sync...');
 console.log(`📝 Project ID: ${projectId}`);
 
-syncProjectDirect(projectId).then(() => {
-  console.log('✅ Done!');
-  process.exit(0);
-}).catch((error) => {
-  console.error('Unhandled error:', error);
-  process.exit(1);
-});
+// syncProjectDirect(projectId).then(() => {
+//   console.log('✅ Done!');
+//   process.exit(0);
+// }).catch((error) => {
+//   console.error('Unhandled error:', error);
+//   process.exit(1);
+// });
+
+(async () => {
+  try {
+    await syncProjectDirect(projectId);
+    console.log('✅ Done!');
+    process.exit(0);
+  } catch (error) {
+    console.error('Unhandled error:', error);
+    process.exit(1);
+  } finally {
+    console.log('🚀 Project sync process completed');
+  }
+})();

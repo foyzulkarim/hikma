@@ -10,6 +10,22 @@ import { ValidationError, ExternalServiceError } from '@/core/errors/app-error';
 import { ASTProcessingHandler } from '@/knowledge/handlers/ast-processing.handler';
 import { chunkSyncService } from '@/knowledge/services/chunk-sync.service';
 
+export type SyncErrorCode = 
+  | 'ACCESS_DENIED'
+  | 'SYNC_IN_PROGRESS' 
+  | 'SYNC_NOT_CAPABLE'
+  | 'CLONE_FAILED'
+  | 'PROCESSING_FAILED'
+  | 'VALIDATION_ERROR'
+  | 'EXTERNAL_SERVICE_ERROR'
+  | 'UNKNOWN_ERROR';
+
+export interface ErrorDetails {
+  phase: 'validation' | 'cloning' | 'processing' | 'qdrant_sync';
+  operation?: string;
+  context?: Record<string, any>;
+}
+
 export interface ProjectSyncResult {
   status: 'success' | 'error' | 'in_progress';
   message: string;
@@ -17,12 +33,21 @@ export interface ProjectSyncResult {
   documentsProcessed?: number;
   tempPath?: string;
   cleanupRequired?: boolean;
+  errorCode?: SyncErrorCode;
+  details?: ErrorDetails;
 }
 
 export interface SyncOptions {
   useTemporaryClone?: boolean;
   force?: boolean;
   branch?: string;
+}
+
+export interface SyncStrategy {
+  useTemporaryClone: boolean;
+  targetBranch?: string;
+  repositoryPath?: string;
+  source: 'url' | 'path' | 'none';
 }
 
 export class ProjectSyncService {
@@ -38,6 +63,431 @@ export class ProjectSyncService {
     this.astProcessingHandler = new ASTProcessingHandler();
   }
 
+  /**
+   * Generate standardized error response with enhanced context
+   */
+  private createErrorResponse(
+    projectId: string,
+    userId: string,
+    error: Error | unknown,
+    correlationId: string,
+    phase: ErrorDetails['phase'],
+    syncId?: string,
+    operation?: string,
+    context?: Record<string, any>
+  ): ProjectSyncResult {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    // Determine error code based on error type and phase
+    let errorCode: SyncErrorCode;
+    if (error instanceof ValidationError) {
+      errorCode = phase === 'validation' && errorMessage.includes('access denied') 
+        ? 'ACCESS_DENIED' 
+        : errorMessage.includes('sync capability') 
+          ? 'SYNC_NOT_CAPABLE'
+          : errorMessage.includes('sync in progress')
+            ? 'SYNC_IN_PROGRESS'
+            : 'VALIDATION_ERROR';
+    } else if (error instanceof ExternalServiceError) {
+      errorCode = phase === 'cloning' ? 'CLONE_FAILED' : 'EXTERNAL_SERVICE_ERROR';
+    } else {
+      errorCode = phase === 'processing' ? 'PROCESSING_FAILED' : 'UNKNOWN_ERROR';
+    }
+    
+    logger.error({
+      projectId,
+      userId,
+      error: errorMessage,
+      stack: errorStack,
+      phase,
+      operation,
+      errorCode,
+      context,
+      correlationId
+    }, `ProjectSyncService error in ${phase} phase`);
+
+    return {
+      status: 'error',
+      message: `Failed to sync project: ${errorMessage}`,
+      syncId: syncId || `sync_${projectId}_${Date.now()}`,
+      errorCode,
+      details: {
+        phase,
+        operation,
+        context
+      }
+    };
+  }
+
+  /**
+   * Validate project access and existence
+   */
+  private async validateProjectAccess(
+    projectId: string,
+    userId: string,
+    correlationId: string
+  ): Promise<{isValid: boolean, project?: ProjectEntity, errorResponse?: ProjectSyncResult}> {
+    logger.info({
+      projectId,
+      userId,
+      correlationId
+    }, 'Verifying project access and existence');
+    
+    const project = await this.projectRepository.findById(projectId, userId);
+    if (!project) {
+      logger.warn({
+        projectId,
+        userId,
+        correlationId
+      }, 'Project not found or access denied');
+      
+      return {
+        isValid: false,
+        errorResponse: this.createErrorResponse(
+          projectId,
+          userId,
+          new ValidationError('Project not found or access denied'),
+          correlationId,
+          'validation',
+          undefined,
+          'project_access_check',
+          { projectId, userId }
+        )
+      };
+    }
+
+    logger.info({
+      projectId,
+      projectName: project.name,
+      userId,
+      correlationId
+    }, 'Project access verified successfully');
+
+    return { isValid: true, project };
+  }
+
+  /**
+   * Check sync status and handle early returns for in-progress or valid existing syncs
+   */
+  private async checkSyncStatus(
+    project: ProjectEntity,
+    correlationId: string
+  ): Promise<{canProceed: boolean, earlyReturn?: ProjectSyncResult}> {
+    if (project.isSyncInProgress()) {
+      const syncInfo = project.getSyncInfo();
+      logger.info({
+        projectId: project.id,
+        existingSyncId: syncInfo.syncId,
+        syncStatus: syncInfo.syncStatus,
+        correlationId
+      }, 'Sync already in progress for project');
+      
+      return {
+        canProceed: false,
+        earlyReturn: {
+          status: 'in_progress',
+          message: 'Sync is already in progress for this project',
+          syncId: syncInfo.syncId,
+          tempPath: syncInfo.tempPath
+        }
+      };
+    }
+
+    if (project.hasValidTempClone()) {
+      const syncInfo = project.getSyncInfo();
+      logger.info({
+        projectId: project.id,
+        tempPath: syncInfo.tempPath,
+        lastSyncAt: syncInfo.lastSyncAt,
+        correlationId
+      }, 'Valid temporary clone already exists');
+      
+      return {
+        canProceed: false,
+        earlyReturn: {
+          status: 'success',
+          message: 'Project already synced with valid temporary clone',
+          syncId: syncInfo.syncId,
+          tempPath: syncInfo.tempPath
+        }
+      };
+    }
+
+    return { canProceed: true };
+  }
+
+  /**
+   * Validate project sync capability
+   */
+  private async validateSyncCapability(
+    project: ProjectEntity,
+    userId: string,
+    correlationId: string
+  ): Promise<{isCapable: boolean, errorResponse?: ProjectSyncResult}> {
+    logger.info({
+      projectId: project.id,
+      projectName: project.name,
+      correlationId
+    }, 'Checking project sync capability');
+    
+    if (!project.canSync()) {
+      logger.warn({
+        projectId: project.id,
+        projectName: project.name,
+        correlationId,
+        reason: 'Project sync capability check failed'
+      }, 'Project cannot be synced');
+      
+      return {
+        isCapable: false,
+        errorResponse: this.createErrorResponse(
+          project.id!,
+          userId,
+          new ValidationError('Project sync capability check failed'),
+          correlationId,
+          'validation',
+          undefined,
+          'sync_capability_check',
+          { projectName: project.name }
+        )
+      };
+    }
+
+    logger.info({
+      projectId: project.id,
+      projectName: project.name,
+      correlationId
+    }, 'Project sync capability confirmed');
+
+    return { isCapable: true };
+  }
+
+  /**
+   * Execute validation phase with all validation checks
+   */
+  private async executeValidationPhase(
+    projectId: string,
+    userId: string,
+    correlationId: string
+  ): Promise<{isValid: boolean, project?: ProjectEntity, earlyReturn?: ProjectSyncResult}> {
+    const accessResult = await this.validateProjectAccess(projectId, userId, correlationId);
+    if (!accessResult.isValid) {
+      return { isValid: false, earlyReturn: accessResult.errorResponse };
+    }
+
+    const syncStatusResult = await this.checkSyncStatus(accessResult.project!, correlationId);
+    if (!syncStatusResult.canProceed) {
+      return { isValid: false, earlyReturn: syncStatusResult.earlyReturn };
+    }
+
+    const capabilityResult = await this.validateSyncCapability(accessResult.project!, userId, correlationId);
+    if (!capabilityResult.isCapable) {
+      return { isValid: false, earlyReturn: capabilityResult.errorResponse };
+    }
+
+    return { isValid: true, project: accessResult.project };
+  }
+
+  /**
+   * Determine repository path for processing
+   */
+  private determineRepositoryPath(
+    tempPath: string | undefined,
+    repositoryInfo: any | null
+  ): {path: string | null, source: 'temp' | 'existing' | 'none'} {
+    if (tempPath) {
+      return { path: tempPath, source: 'temp' };
+    }
+    
+    if (repositoryInfo?.path) {
+      return { path: repositoryInfo.path, source: 'existing' };
+    }
+    
+    return { path: null, source: 'none' };
+  }
+
+  /**
+   * Execute repository processing phase
+   */
+  private async executeProcessingPhase(
+    projectId: string,
+    repositoryPath: string,
+    correlationId: string
+  ): Promise<{success: boolean, errorResponse?: ProjectSyncResult}> {
+    const processResult = await this.processRepositoryFiles(projectId, repositoryPath, correlationId);
+    
+    if (!processResult.success) {
+      return {
+        success: false,
+        errorResponse: {
+          status: 'error',
+          message: `Failed to process repository files: ${processResult.error}`,
+          errorCode: 'PROCESSING_FAILED',
+          details: {
+            phase: 'processing',
+            operation: 'ast_processing',
+            context: { repositoryPath }
+          }
+        }
+      };
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Determine sync strategy based on options and repository info
+   */
+  private determineSyncStrategy(
+    options: SyncOptions,
+    repositoryInfo: any | null
+  ): SyncStrategy {
+    const useTemporaryClone = options.useTemporaryClone || 
+      (repositoryInfo?.url && !repositoryInfo?.path);
+    
+    if (useTemporaryClone && repositoryInfo?.url) {
+      return {
+        useTemporaryClone: true,
+        targetBranch: options.branch || repositoryInfo.branch,
+        source: 'url'
+      };
+    }
+    
+    if (repositoryInfo?.path) {
+      return {
+        useTemporaryClone: false,
+        repositoryPath: repositoryInfo.path,
+        source: 'path'
+      };
+    }
+    
+    return {
+      useTemporaryClone: false,
+      source: 'none'
+    };
+  }
+
+  /**
+   * Execute clone phase if temporary cloning is required
+   */
+  private async executeClonePhase(
+    project: ProjectEntity,
+    strategy: SyncStrategy,
+    syncId: string,
+    correlationId: string
+  ): Promise<{success: boolean, tempPath?: string, cleanupRequired?: boolean, errorResponse?: ProjectSyncResult}> {
+    if (!strategy.useTemporaryClone || strategy.source !== 'url') {
+      return { success: true };
+    }
+
+    const repositoryInfo = project.getRepositoryInfo();
+    
+    logger.info({
+      projectId: project.id,
+      syncId,
+      repositoryUrl: repositoryInfo?.url,
+      branch: strategy.targetBranch,
+      correlationId
+    }, 'Starting temporary repository clone');
+
+    const cloneResult = await this.cloneToTemporaryDirectory(
+      repositoryInfo?.url!,
+      strategy.targetBranch,
+      correlationId
+    );
+    
+    if (!cloneResult.success) {
+      return {
+        success: false,
+        errorResponse: {
+          status: 'error',
+          message: `Failed to clone repository: ${cloneResult.error}`,
+          syncId,
+          errorCode: 'CLONE_FAILED',
+          details: {
+            phase: 'cloning',
+            operation: 'repository_clone',
+            context: { repositoryUrl: repositoryInfo?.url, branch: strategy.targetBranch }
+          }
+        }
+      };
+    }
+    
+    // Update sync status with tempPath
+    await this.projectRepository.updateSyncStatus(project.id!, {
+      tempPath: cloneResult.tempDir
+    });
+
+    logger.info({
+      projectId: project.id,
+      syncId,
+      tempPath: cloneResult.tempDir,
+      repositoryUrl: repositoryInfo?.url,
+      branch: strategy.targetBranch,
+      correlationId
+    }, 'Repository cloned to temporary directory successfully');
+
+    return { 
+      success: true, 
+      tempPath: cloneResult.tempDir, 
+      cleanupRequired: true 
+    };
+  }
+
+  /**
+   * Execute Qdrant sync phase
+   */
+  private async executeQdrantSyncPhase(
+    projectId: string,
+    correlationId: string
+  ): Promise<{success: boolean, warnings?: string[]}> {
+    logger.info({ projectId, correlationId }, 'Starting automatic Qdrant sync');
+    
+    try {
+      const syncResult = await chunkSyncService.syncChunksToQdrant({
+        projectId,
+        skipExisting: false,
+        batchSize: 10
+      });
+      
+      logger.info({
+        projectId,
+        syncResult: {
+          processed: syncResult.processed,
+          successful: syncResult.successful,
+          failed: syncResult.failed,
+          duration: syncResult.duration
+        },
+        correlationId
+      }, 'Qdrant sync completed successfully');
+      
+      const warnings: string[] = [];
+      if (syncResult.failed > 0) {
+        const warningMessage = `${syncResult.failed} chunks failed to sync to Qdrant`;
+        warnings.push(warningMessage);
+        
+        logger.warn({
+          projectId,
+          failedCount: syncResult.failed,
+          errors: syncResult.errors,
+          correlationId
+        }, 'Some chunks failed to sync to Qdrant');
+      }
+      
+      return { success: true, warnings };
+    } catch (qdrantError) {
+      logger.error({
+        projectId,
+        error: qdrantError instanceof Error ? qdrantError.message : 'Unknown error',
+        correlationId
+      }, 'Qdrant sync failed - continuing with sync process');
+      
+      // Don't fail the entire sync process for Qdrant failures
+      return { success: true, warnings: ['Qdrant sync failed but sync process continued'] };
+    }
+  }
+
   async syncProject(id: string, userId: string, options: SyncOptions = {}): Promise<ProjectSyncResult> {
     const correlationId = `sync-service-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const startTime = Date.now();
@@ -50,95 +500,13 @@ export class ProjectSyncService {
     }, 'ProjectSyncService.syncProject started');
 
     try {
-      // Verify project exists and user has access
-      logger.info({
-        projectId: id,
-        userId,
-        correlationId
-      }, 'Verifying project access and existence');
-      
-      const project = await this.projectRepository.findById(id, userId);
-      if (!project) {
-        logger.warn({
-          projectId: id,
-          userId,
-          correlationId
-        }, 'Project not found or access denied');
-        throw new ValidationError('Project not found or access denied');
+      // Phase 1: Validation
+      const validationResult = await this.executeValidationPhase(id, userId, correlationId);
+      if (!validationResult.isValid) {
+        return validationResult.earlyReturn!;
       }
 
-      logger.info({
-        projectId: id,
-        projectName: project.name,
-        userId,
-        correlationId
-      }, 'Project access verified successfully');
-
-      // Check if sync is already in progress
-      if (project.isSyncInProgress()) {
-        const syncInfo = project.getSyncInfo();
-        logger.info({
-          projectId: id,
-          existingSyncId: syncInfo.syncId,
-          syncStatus: syncInfo.syncStatus,
-          correlationId
-        }, 'Sync already in progress for project');
-        
-        return {
-          status: 'in_progress',
-          message: 'Sync is already in progress for this project',
-          syncId: syncInfo.syncId,
-          tempPath: syncInfo.tempPath
-        };
-      }
-
-      // Check if we have a valid existing temporary clone
-      if (project.hasValidTempClone()) {
-        const syncInfo = project.getSyncInfo();
-        logger.info({
-          projectId: id,
-          tempPath: syncInfo.tempPath,
-          lastSyncAt: syncInfo.lastSyncAt,
-          correlationId
-        }, 'Valid temporary clone already exists');
-        
-        return {
-          status: 'success',
-          message: 'Project already synced with valid temporary clone',
-          syncId: syncInfo.syncId,
-          tempPath: syncInfo.tempPath
-        };
-      }
-
-      // Check if project can be synced
-      logger.info({
-        projectId: id,
-        projectName: project.name,
-        userId,
-        correlationId
-      }, 'Checking project sync capability');
-      
-      if (!project.canSync()) {
-        logger.warn({
-          projectId: id,
-          projectName: project.name,
-          userId,
-          correlationId,
-          reason: 'Project sync capability check failed'
-        }, 'Project cannot be synced');
-        
-        return {
-          status: 'error',
-          message: 'Project cannot be synced. Check project status and repository configuration.'
-        };
-      }
-
-      logger.info({
-        projectId: id,
-        projectName: project.name,
-        userId,
-        correlationId
-      }, 'Project sync capability confirmed');
+      const project = validationResult.project!;
 
       // Generate sync ID and update sync status to in_progress
       const syncId = `sync_${id}_${Date.now()}`;
@@ -164,126 +532,59 @@ export class ProjectSyncService {
         correlationId
       }, 'Generated sync ID, updated sync status to in_progress, and retrieved repository info');
 
-      let tempPath: string | undefined;
-      let cleanupRequired = false;
-
-      // Determine if we should use temporary cloning
-      const shouldUseTemporaryClone = options.useTemporaryClone || 
-        (repositoryInfo?.url && !repositoryInfo?.path);
-        
+      // Phase 1.5: Strategy Determination
+      const strategy = this.determineSyncStrategy(options, repositoryInfo);
+      
       logger.info({
         projectId: id,
         syncId,
-        shouldUseTemporaryClone,
-        useTemporaryCloneOption: options.useTemporaryClone,
-        hasRepositoryUrl: !!repositoryInfo?.url,
-        hasRepositoryPath: !!repositoryInfo?.path,
+        strategy,
         correlationId
-      }, 'Temporary cloning decision made');
+      }, 'Sync strategy determined');
 
-      if (shouldUseTemporaryClone && repositoryInfo?.url) {
-        const targetBranch = options.branch || repositoryInfo.branch;
-        
-        logger.info({
-          projectId: id,
-          syncId,
-          repositoryUrl: repositoryInfo.url,
-          branch: targetBranch,
-          correlationId
-        }, 'Starting temporary repository clone');
-
-        tempPath = await this.cloneToTemporaryDirectory(
-          repositoryInfo.url,
-          targetBranch,
-          correlationId
-        );
-        cleanupRequired = true;
-
-        // Update sync status with tempPath
-        await this.projectRepository.updateSyncStatus(id, {
-          tempPath
-        });
-
-        logger.info({
-          projectId: id,
-          syncId,
-          tempPath,
-          repositoryUrl: repositoryInfo.url,
-          branch: targetBranch,
-          correlationId
-        }, 'Repository cloned to temporary directory successfully');
-      } else {
-        logger.info({
-          projectId: id,
-          syncId,
-          reason: shouldUseTemporaryClone ? 'No repository URL available' : 'Using existing repository path',
-          repositoryPath: repositoryInfo?.path,
-          correlationId
-        }, 'Skipping temporary clone');
+      // Phase 2: Clone (if needed)
+      const cloneResult = await this.executeClonePhase(project, strategy, syncId, correlationId);
+      if (!cloneResult.success) {
+        return cloneResult.errorResponse!;
       }
 
-      // DIRECT AST PROCESSING: Parse code files and generate embeddings
-      // This replaces the complex event-driven approach with a simple direct call
-      if (tempPath) {
-        logger.info({ projectId: id, tempPath, correlationId }, 'Starting AST processing for cloned repository');
-        await this.processRepositoryFiles(id, tempPath, correlationId);
-      } else if (repositoryInfo?.path) {
-        logger.info({ projectId: id, path: repositoryInfo.path, correlationId }, 'Starting AST processing for existing repository');
-        await this.processRepositoryFiles(id, repositoryInfo.path, correlationId);
-      } else {
-        logger.warn({ projectId: id, correlationId }, 'No repository path available for AST processing');
-      }
+      const tempPath = cloneResult.tempPath;
+      const cleanupRequired = cloneResult.cleanupRequired || false;
 
-      // AUTOMATIC QDRANT SYNC: Sync processed chunks to Qdrant vector database
-      logger.info({ projectId: id, correlationId }, 'Starting automatic Qdrant sync');
-      try {
-        const syncResult = await chunkSyncService.syncChunksToQdrant({
-          projectId: id,
-          skipExisting: false,
-          batchSize: 10
-        });
+      // Phase 2: Repository Processing
+      const repositoryPathInfo = this.determineRepositoryPath(tempPath, repositoryInfo);
+      if (repositoryPathInfo.path) {
+        logger.info({ 
+          projectId: id, 
+          repositoryPath: repositoryPathInfo.path,
+          source: repositoryPathInfo.source,
+          correlationId 
+        }, 'Starting repository processing');
         
-        logger.info({
-          projectId: id,
-          syncResult: {
-            processed: syncResult.processed,
-            successful: syncResult.successful,
-            failed: syncResult.failed,
-            duration: syncResult.duration
-          },
-          correlationId
-        }, 'Qdrant sync completed successfully');
-        
-        if (syncResult.failed > 0) {
-          logger.warn({
-            projectId: id,
-            failedCount: syncResult.failed,
-            errors: syncResult.errors,
-            correlationId
-          }, 'Some chunks failed to sync to Qdrant');
+        const processingResult = await this.executeProcessingPhase(id, repositoryPathInfo.path, correlationId);
+        if (!processingResult.success) {
+          return processingResult.errorResponse!;
         }
-      } catch (qdrantError) {
-        logger.error({
-          projectId: id,
-          error: qdrantError instanceof Error ? qdrantError.message : 'Unknown error',
-          correlationId
-        }, 'Qdrant sync failed - continuing with sync process');
-        // Don't throw here - Qdrant sync failure shouldn't stop the entire sync process
+      } else {
+        logger.warn({ projectId: id, correlationId }, 'No repository path available for processing');
       }
 
-      // Prepare and emit domain event
+      // Phase 4: Qdrant Sync
+      await this.executeQdrantSyncPhase(id, correlationId);
+
+      // Phase 5: Event Emission
       const event: ProjectSyncStartedEvent = {
         projectId: id,
         userId,
         syncId,
         repositoryUrl: repositoryInfo?.url,
-        branch: options.branch || repositoryInfo?.branch,
+        branch: strategy.targetBranch || repositoryInfo?.branch,
         timestamp: new Date().toISOString(),
         metadata: {
            force: options.force || false,
            lastSyncAt: undefined,
            tempPath,
-           useTemporaryClone: Boolean(shouldUseTemporaryClone)
+           useTemporaryClone: strategy.useTemporaryClone
          }
       };
       
@@ -324,40 +625,25 @@ export class ProjectSyncService {
         tempPath,
         cleanupRequired
       };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      
-      // Update sync status to failed
-        try {
-          await this.projectRepository.updateSyncStatus(id, {
-            syncStatus: 'failed',
-            errorMessage
-          });
-      } catch (updateError) {
-        logger.error({
-          projectId: id,
-          updateError: updateError instanceof Error ? updateError.message : 'Unknown error',
-          correlationId
-        }, 'Failed to update sync status to error');
-      }
-      
+    } catch (unexpectedError) {
+      // Safety net for truly unexpected runtime exceptions
       logger.error({
         projectId: id,
         userId,
-        options,
-        error: errorMessage,
-        stack: errorStack,
-        duration,
-        correlationId
-      }, 'ProjectSyncService.syncProject failed');
-
-      return {
-        status: 'error',
-        message: `Failed to start sync: ${errorMessage}`,
-        syncId: `sync_${id}_${Date.now()}`
-      };
+        correlationId,
+        error: unexpectedError instanceof Error ? unexpectedError.message : 'Unknown error',
+        stack: unexpectedError instanceof Error ? unexpectedError.stack : undefined
+      }, 'Unexpected error in syncProject - system-level exception caught');
+      
+      return this.createErrorResponse(
+        id,
+        userId,
+        unexpectedError instanceof Error ? unexpectedError : new Error('Unexpected system error'),
+        correlationId,
+        'validation',
+        undefined,
+        'unexpected_error'
+      );
     }
   }
 
@@ -381,7 +667,7 @@ export class ProjectSyncService {
     });
   }
 
-  private async cloneToTemporaryDirectory(repositoryUrl: string, branch?: string, correlationId?: string): Promise<string> {
+  private async cloneToTemporaryDirectory(repositoryUrl: string, branch?: string, correlationId?: string): Promise<{ success: boolean; tempDir?: string; error?: string }> {
     const cloneCorrelationId = correlationId || `clone-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const startTime = Date.now();
     
@@ -421,7 +707,7 @@ export class ProjectSyncService {
           error: accessError instanceof Error ? accessError.message : 'Unknown error',
           correlationId: cloneCorrelationId
         }, 'Temporary directory does not exist or is not accessible');
-        throw new Error(`Temporary directory ${tempDir} is not accessible`);
+        return { success: false, error: `Temporary directory ${tempDir} is not accessible` };
       }
 
       // Clone repository using GitService
@@ -449,7 +735,7 @@ export class ProjectSyncService {
         correlationId: cloneCorrelationId
       }, 'Repository cloned successfully to temporary directory');
 
-      return tempDir;
+      return { success: true, tempDir };
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -463,7 +749,7 @@ export class ProjectSyncService {
         duration,
         correlationId: cloneCorrelationId
       }, 'Failed to clone repository to temporary directory');
-      throw error;
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -563,7 +849,7 @@ export class ProjectSyncService {
   /**
    * Process repository files with AST parsing and embedding generation
    */
-  private async processRepositoryFiles(projectId: string, repositoryPath: string, correlationId: string): Promise<void> {
+  private async processRepositoryFiles(projectId: string, repositoryPath: string, correlationId: string): Promise<{ success: boolean; error?: string }> {
     const startTime = Date.now();
     
     logger.info({
@@ -588,8 +874,9 @@ export class ProjectSyncService {
 
       // Process each code file
       for (const filePath of codeFiles) {
-        try {
-          await this.processSingleFile(filePath, repositoryPath, projectId, correlationId);
+        const fileResult = await this.processSingleFile(filePath, repositoryPath, projectId, correlationId);
+        
+        if (fileResult.success) {
           processedFiles++;
           
           logger.debug({
@@ -599,13 +886,12 @@ export class ProjectSyncService {
             totalFiles: codeFiles.length,
             correlationId
           }, 'Successfully processed file');
-          
-        } catch (fileError) {
+        } else {
           failedFiles++;
           logger.error({
             projectId,
             filePath: filePath.replace(repositoryPath, ''),
-            error: fileError instanceof Error ? fileError.message : 'Unknown error',
+            error: fileResult.error,
             correlationId
           }, 'Failed to process file');
         }
@@ -622,6 +908,8 @@ export class ProjectSyncService {
         duration,
         correlationId
       }, 'Repository AST processing completed');
+      
+      return { success: true };
 
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -634,7 +922,7 @@ export class ProjectSyncService {
         duration,
         correlationId
       }, 'Repository AST processing failed');
-      throw error;
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -646,7 +934,7 @@ export class ProjectSyncService {
     repositoryPath: string, 
     projectId: string, 
     correlationId: string
-  ): Promise<void> {
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       // Read file content
       const fs = await import('fs/promises');
@@ -678,6 +966,8 @@ export class ProjectSyncService {
         }, 'AST processing failed for file');
       }
       
+      return { success: true };
+      
     } catch (error) {
       logger.error({
         projectId,
@@ -685,7 +975,7 @@ export class ProjectSyncService {
         error: error instanceof Error ? error.message : 'Unknown error',
         correlationId
       }, 'Failed to process file content');
-      throw error;
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
 

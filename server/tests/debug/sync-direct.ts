@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import { ProjectSyncService } from '../../src/domains/projects/services/project-sync.service';
 import { ProjectRepository } from '../../src/domains/projects/repositories/project.repository';
+import { vectorDbManager } from '../../src/config/vector-db';
 import { PrismaClient } from '@prisma/client';
 
 const DEFAULT_USER_ID = 'cmf30k5430001dysh7wb84z0q'; // Valid user with OWNER access
@@ -20,6 +21,10 @@ async function syncProjectDirect(projectId: string) {
   try {
     await prisma.$connect();
     console.log('✅ Database connected');
+    
+    // Initialize Qdrant connection and create collection if needed
+    await vectorDbManager.connect();
+    console.log('✅ Vector database connected');
 
     const projectRepository = new ProjectRepository(prisma);
     const projectSyncService = new ProjectSyncService(projectRepository);

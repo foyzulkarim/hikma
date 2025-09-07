@@ -188,6 +188,8 @@ export class EmbeddingService {
         return 1536;
       case EmbeddingModel.LM_STUDIO_EMBEDDING:
         return 768; // Nomic embed text model dimensions
+      case EmbeddingModel.OLLAMA_EMBEDDING:
+        return 1024; // mxbai-embed-large model dimensions
       default:
         return 768; // Default to LM Studio dimensions
     }

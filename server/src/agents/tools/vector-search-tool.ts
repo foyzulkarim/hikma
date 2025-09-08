@@ -76,25 +76,46 @@ export class VectorSearchTool implements ITool {
       const searchResponse = await vectorSearchService.searchByText(input.query, searchOptions);
 
       // Transform results to tool output format
-      const results = searchResponse.results.map(result => ({
-        id: result.id,
-        score: result.score,
-        title: result.metadata.title || 'Untitled',
-        content: result.metadata.content || '',
-        path: result.metadata.path,
-        type: result.metadata.documentType || 'unknown',
-        metadata: {
-          sourceType: result.metadata.sourceType,
-          sourceId: result.metadata.sourceId,
-          language: result.metadata.language,
-          author: result.metadata.author,
-          createdAt: result.metadata.createdAt,
-          updatedAt: result.metadata.updatedAt,
-          tags: result.metadata.tags,
-          chunkIndex: result.metadata.chunkIndex,
-          totalChunks: result.metadata.totalChunks,
-        },
-      }));
+      const results = searchResponse.results.map(result => {
+        // Use new payload structure, fall back to legacy metadata if needed
+        const payload = result.payload || result.metadata;
+        
+        return {
+          id: result.id,
+          score: result.score,
+          title: payload?.node_name || (payload as any)?.title || 'Untitled',
+          content: payload?.docstring_summary || payload?.first_line_comment || (payload as any)?.content || '',
+          path: payload?.file_path || (payload as any)?.path,
+          type: payload?.node_type || (payload as any)?.documentType || 'unknown',
+          metadata: {
+            node_type: payload?.node_type,
+            node_name: payload?.node_name,
+            file_path: payload?.file_path,
+            language: payload?.language,
+            framework: payload?.framework,
+            purpose_category: payload?.purpose_category,
+            domain_tags: payload?.domain_tags,
+            patterns: payload?.patterns,
+            depth_level: payload?.depth_level,
+            complexity_score: payload?.complexity_score,
+            line_count: payload?.line_count,
+            has_docstring: payload?.has_docstring,
+            has_error_handling: payload?.has_error_handling,
+            is_exported: payload?.is_exported,
+            is_async: payload?.is_async,
+            signature: payload?.signature,
+            indexed_at: payload?.indexed_at,
+            file_modified_at: payload?.file_modified_at,
+            // Legacy fields for backward compatibility (undefined for new payload)
+            sourceType: (payload as any)?.sourceType,
+            sourceId: (payload as any)?.sourceId,
+            author: (payload as any)?.author,
+            createdAt: (payload as any)?.createdAt,
+            updatedAt: (payload as any)?.updatedAt,
+            tags: (payload as any)?.tags,
+          },
+        };
+      });
 
       const executionTime = Date.now() - startTime;
 
@@ -227,14 +248,31 @@ export class VectorSearchTool implements ITool {
   private buildFilter(input: VectorSearchInput): VectorFilter | undefined {
     const filter: VectorFilter = {};
 
-    // Add project filter
+    // Add repository filter (new field name)
     if (input.projectId) {
-      filter.projectId = input.projectId;
+      filter.repository_id = input.projectId;
     }
 
     // Add custom filters
     if (input.filters) {
-      Object.assign(filter, input.filters);
+      // Map legacy filter names to new ones
+      const mappedFilters: any = {};
+      for (const [key, value] of Object.entries(input.filters)) {
+        switch (key) {
+          case 'documentType':
+            mappedFilters.node_type = value;
+            break;
+          case 'path':
+            mappedFilters.file_path = value;
+            break;
+          case 'projectId':
+            mappedFilters.repository_id = value;
+            break;
+          default:
+            mappedFilters[key] = value;
+        }
+      }
+      Object.assign(filter, mappedFilters);
     }
 
     // If namespace is provided, add it as a metadata filter for Qdrant
@@ -257,7 +295,7 @@ export class VectorSearchTool implements ITool {
       projectId,
       topK,
       filters: {
-        documentType: ['code'],
+        node_type: ['FUNCTION', 'METHOD', 'CLASS', 'MODULE'],
         ...(language && { language: [language] }),
       },
       rerank: true,
@@ -274,7 +312,7 @@ export class VectorSearchTool implements ITool {
       projectId,
       topK,
       filters: {
-        documentType: ['documentation', 'readme', 'markdown'],
+        patterns: ['documentation', 'readme', 'markdown'],
       },
       rerank: true,
     });
@@ -290,7 +328,7 @@ export class VectorSearchTool implements ITool {
       projectId,
       topK,
       filters: {
-        documentType: ['commit'],
+        patterns: ['commit'],
       },
       rerank: true,
     });
@@ -307,7 +345,7 @@ export class VectorSearchTool implements ITool {
       projectId,
       topK,
       filters: {
-        path: { $regex: pathPattern },
+        file_path: { $regex: pathPattern },
       },
       rerank: true,
     });
@@ -327,7 +365,7 @@ export class VectorSearchTool implements ITool {
       projectId,
       topK,
       filters: {
-        updatedAt: { $gte: cutoffDate.toISOString() },
+        file_modified_at: { $gte: cutoffDate.toISOString() },
       },
       rerank: true,
     });

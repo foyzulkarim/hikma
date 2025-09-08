@@ -22,12 +22,14 @@ export interface GraphConfig {
 
 // Graph node types
 export enum GraphNodeType {
-  CHUNK = 'Chunk',
+  CHUNK = 'CodeChunk',
   DOCUMENT = 'Document',
   PROJECT = 'Project',
   FUNCTION = 'Function',
   CLASS = 'Class',
   MODULE = 'Module',
+  INTERFACE = 'Interface',
+  TYPE = 'Type',
   PACKAGE = 'Package',
 }
 
@@ -38,12 +40,15 @@ export enum GraphRelationshipType {
   EXTENDS = 'EXTENDS',
   IMPLEMENTS = 'IMPLEMENTS',
   IMPORTS = 'IMPORTS',
+  EXPORTS = 'EXPORTS',
   USES = 'USES',
   REFERENCES = 'REFERENCES',
   OVERRIDES = 'OVERRIDES',
   DEPENDS_ON = 'DEPENDS_ON',
   BELONGS_TO = 'BELONGS_TO',
   SIMILAR_TO = 'SIMILAR_TO',
+  TESTED_BY = 'TESTED_BY',
+  DECORATES = 'DECORATES',
 }
 
 // Base graph node interface
@@ -63,7 +68,37 @@ export interface GraphRelationship {
   properties?: Record<string, any>;
 }
 
-// Chunk node for Neo4j
+// Code chunk node for Neo4j - matches new schema
+export interface CodeChunkGraphNode extends GraphNode {
+  type: GraphNodeType.CHUNK;
+  properties: {
+    // Identity - matches PostgreSQL chunk_id
+    id: string;
+    name: string;
+    type: 'MODULE' | 'CLASS' | 'FUNCTION' | 'METHOD' | 'INTERFACE' | 'TYPE';
+    
+    // Core metadata
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    signature?: string;
+    
+    // Quick classification
+    purposeCategory: string;
+    isAsync: boolean;
+    isExported: boolean;
+    
+    // For quick filtering without joining
+    repository: string;
+    language: string;
+    
+    // Additional metadata for compatibility
+    createdAt: string;
+    updatedAt: string;
+  };
+}
+
+// Legacy interface for backward compatibility (deprecated)
 export interface ChunkGraphNode extends GraphNode {
   type: GraphNodeType.CHUNK;
   properties: {
@@ -297,7 +332,13 @@ export interface IGraphService {
 
 // Graph chunk service interface (extends IGraphService for chunk-specific operations)
 export interface IGraphChunkService extends IGraphService {
-  // Chunk-specific operations
+  // New chunk-specific operations
+  createCodeChunkNode(chunk: CodeChunkGraphNode): Promise<CodeChunkGraphNode>;
+  batchCreateCodeChunkNodes(chunks: CodeChunkGraphNode[]): Promise<CodeChunkGraphNode[]>;
+  findCodeChunks(options: GraphSearchOptions): Promise<CodeChunkGraphNode[]>;
+  findRelatedCodeChunks(chunkId: string, options?: GraphTraversalOptions): Promise<CodeChunkGraphNode[]>;
+
+  // Legacy chunk operations (deprecated)
   createChunkNode(chunk: ChunkGraphNode): Promise<ChunkGraphNode>;
   batchCreateChunkNodes(chunks: ChunkGraphNode[]): Promise<ChunkGraphNode[]>;
   findChunks(options: GraphSearchOptions): Promise<ChunkGraphNode[]>;
@@ -318,13 +359,15 @@ export interface IGraphChunkService extends IGraphService {
     relationshipCounts: Record<GraphRelationshipType, number>;
   }>;
 
-  // Chunk queries
-  findChunksByContent(content: string, limit?: number): Promise<ChunkGraphNode[]>;
-  findChunksByFunction(functionName: string, limit?: number): Promise<ChunkGraphNode[]>;
-  findChunksByFile(filePath: string, limit?: number): Promise<ChunkGraphNode[]>;
+  // Enhanced chunk queries
+  findChunksByContent(content: string, limit?: number): Promise<CodeChunkGraphNode[]>;
+  findChunksByFunction(functionName: string, limit?: number): Promise<CodeChunkGraphNode[]>;
+  findChunksByFile(filePath: string, limit?: number): Promise<CodeChunkGraphNode[]>;
+  findChunksByType(type: 'MODULE' | 'CLASS' | 'FUNCTION' | 'METHOD' | 'INTERFACE' | 'TYPE', limit?: number): Promise<CodeChunkGraphNode[]>;
+  findChunksByPurpose(purposeCategory: string, limit?: number): Promise<CodeChunkGraphNode[]>;
   getChunkCallGraph(chunkId: string, maxDepth?: number): Promise<GraphPath[]>;
-  getChunkDependencies(chunkId: string, maxDepth?: number): Promise<ChunkGraphNode[]>;
-  findSimilarChunks(chunkId: string, limit?: number): Promise<ChunkGraphNode[]>;
+  getChunkDependencies(chunkId: string, maxDepth?: number): Promise<CodeChunkGraphNode[]>;
+  findSimilarChunks(chunkId: string, limit?: number): Promise<CodeChunkGraphNode[]>;
 }
 
 // Graph operation result

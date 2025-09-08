@@ -125,9 +125,9 @@ model DataSource {
   updatedAt   DateTime         @updatedAt
 
   // Relationships
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  syncJobs    SyncJob[]
-  documents   Document[]
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  syncJobs     SyncJob[]
+  repositories Repository[]
 
   @@unique([projectId, name])
   @@map("data_sources")
@@ -189,7 +189,7 @@ enum SyncJobStatus {
   CANCELLED
 }
 
-// Knowledge Base
+// Knowledge Base - now works with repositories and code chunks
 model KnowledgeBase {
   id          String   @id @default(cuid())
   projectId   String
@@ -200,115 +200,175 @@ model KnowledgeBase {
   updatedAt   DateTime @updatedAt
 
   // Relationships
-  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  documents Document[]
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, name])
   @@map("knowledge_bases")
 }
 
-// Document Storage
-model Document {
-  id              String       @id @default(cuid())
-  knowledgeBaseId String
-  dataSourceId    String
-  externalId      String?
-  title           String
-  content         String
-  summary         String?
-  metadata        Json         @default("{}")
-  type            DocumentType
-  status          DocumentStatus @default(PENDING)
+// Repository Management
+model Repository {
+  id               String      @id @default(cuid())
+  dataSourceId     String
+  name             String
+  url              String?
+  lastIndexedAt    DateTime?
+  indexingVersion  String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  // Relationships
+  dataSource DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  files      CodeFile[]
+
+  @@index([dataSourceId])
+  @@map("repositories")
+}
+
+// File tracking with full path indexing
+model CodeFile {
+  id           String     @id @default(cuid())
+  repositoryId String
+  filePath     String
+  language     String?
+  framework    String?
+  fileHash     String?    // SHA-256 for change detection
+  lineCount    Int?
+  sizeBytes    Int?
+  lastModified DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relationships
+  repository Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  chunks     CodeChunk[]
+
+  @@unique([repositoryId, filePath])
+  @@index([filePath])
+  @@index([language])
+  @@map("code_files")
+}
+
+// Rich code chunks with Tree-sitter metadata
+model CodeChunk {
+  id              String    @id @default(cuid())
+  fileId          String
+  parentChunkId   String?   // Self-reference for nested chunks
+  
+  // Position information
+  startLine       Int
+  endLine         Int
+  startColumn     Int?
+  endColumn       Int?
+  
+  // Content
+  codeContent     String
+  cleanedContent  String?   // without comments/docstrings for embedding
+  
+  // Tree-sitter extracted metadata
+  nodeType        String    // function, class, method, etc.
+  nodeName        String?
+  signature       String?   // full signature for functions/methods
+  
+  // Classification metadata
+  purposeCategory String?
+  complexityScore Float?
+  cognitiveComplexity Int?
+  
+  // Rich flags
+  hasDocstring    Boolean   @default(false)
+  hasErrorHandling Boolean  @default(false)
+  hasTests        Boolean   @default(false)
+  isExported      Boolean   @default(false)
+  isAsync         Boolean   @default(false)
+  isGenerator     Boolean   @default(false)
+  isStatic        Boolean   @default(false)
+  
+  // Indexing
+  embeddingVersion String?
+  embeddedAt      DateTime?
+  qdrantPointId   String?   @unique
   vectorId        String?
-  graphNodeId     String?
-  hash            String
-  size            Int
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   // Relationships
-  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
-  dataSource    DataSource    @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
-  chunks        DocumentChunk[]
+  file            CodeFile      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  parentChunk     CodeChunk?    @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
+  childChunks     CodeChunk[]   @relation("ChunkHierarchy")
+  documentation   ChunkDocumentation[]
+  tags            ChunkTag[]
+  typeDefinitions TypeDefinition[]
 
-  @@unique([dataSourceId, externalId])
-  @@index([hash])
-  @@index([type])
-  @@index([status])
-  @@map("documents")
-}
-
-enum DocumentType {
-  CODE_FILE
-  COMMIT
-  PULL_REQUEST
-  ISSUE
-  COMMENT
-  WIKI_PAGE
-  SLACK_MESSAGE
-  JIRA_TICKET
-  CONFLUENCE_PAGE
-  MARKDOWN
-  TEXT
-}
-
-enum DocumentStatus {
-  PENDING
-  PROCESSING
-  INDEXED
-  ERROR
-  ARCHIVED
-}
-
-// Document Chunking
-model DocumentChunk {
-  id         String   @id @default(cuid())
-  documentId String
-  chunkIndex Int
-  content    String
-  metadata   Json     @default("{}")
-  vectorId   String?
-  embedding  Float[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relationships
-  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  astMetadata ASTChunkMetadata?
-
-  @@unique([documentId, chunkIndex])
+  @@index([fileId])
+  @@index([nodeType])
+  @@index([purposeCategory])
+  @@index([complexityScore])
+  @@index([parentChunkId])
   @@index([vectorId])
-  @@map("document_chunks")
+  @@map("code_chunks")
 }
 
-// AST-specific chunk metadata
-model ASTChunkMetadata {
-  id            String    @id @default(cuid())
-  chunkId       String    @unique
-  astNodeType   String?   // Maps to ASTNodeType enum
-  functionName  String?
-  className     String?
-  methodName    String?
-  parameters    String[]  @default([])
-  returnType    String?
-  visibility    String?   // public, private, protected
-  isStatic      Boolean   @default(false)
-  isAsync       Boolean   @default(false)
-  complexity    Int?
-  dependencies  String[]  @default([])
-  startLine     Int?
-  endLine       Int?
-  syntaxTree    Json?     // Simplified AST representation
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+// Extracted documentation
+model ChunkDocumentation {
+  id      String @id @default(cuid())
+  chunkId String
+  docType String // 'docstring', 'comment', 'jsdoc', 'readme_ref'
+  content String
+  summary String? // LLM-generated summary
+  createdAt DateTime @default(now())
 
   // Relationships
-  chunk DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  chunk CodeChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
 
-  @@index([astNodeType])
-  @@index([functionName])
-  @@index([className])
-  @@map("ast_chunk_metadata")
+  @@index([chunkId])
+  @@index([docType])
+  @@map("chunk_documentation")
+}
+
+// Domain and semantic tags
+model SemanticTag {
+  id          String @id @default(cuid())
+  name        String @unique
+  category    String? // 'domain', 'pattern', 'framework_specific'
+  description String?
+
+  // Relationships
+  chunks ChunkTag[]
+
+  @@index([category])
+  @@map("semantic_tags")
+}
+
+model ChunkTag {
+  chunkId    String
+  tagId      String
+  confidence Float  @default(1.0)
+
+  // Relationships
+  chunk CodeChunk   @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  tag   SemanticTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([chunkId, tagId])
+  @@map("chunk_tags")
+}
+
+// Type information for TypeScript/strongly-typed languages
+model TypeDefinition {
+  id             String  @id @default(cuid())
+  chunkId        String
+  paramName      String?
+  typeDefinition String
+  isReturnType   Boolean @default(false)
+  isGeneric      Boolean @default(false)
+
+  // Relationships
+  chunk CodeChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@index([chunkId])
+  @@index([isReturnType])
+  @@map("type_definitions")
 }
 
 // Query and Response Logging

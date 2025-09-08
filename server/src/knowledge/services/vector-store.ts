@@ -216,8 +216,8 @@ export class QdrantVectorStore implements IVectorStore {
 
       const points = vectors.map(vector => ({
         id: vector.id,
-        vector: vector.values,
-        payload: vector.metadata,
+        vector: vector.vectors?.code || vector.values || [],
+        payload: vector.payload || vector.metadata,
       }));
 
       await this.client.upsert(this.collectionName, {
@@ -334,6 +334,10 @@ export class QdrantVectorStore implements IVectorStore {
 
       const vectors: VectorRecord[] = response.map(point => ({
         id: point.id as string,
+        vectors: {
+          code: point.vector as number[]
+        },
+        payload: (point.payload as unknown) as any || {},
         values: point.vector as number[],
         metadata: (point.payload as unknown) as VectorMetadata || {} as VectorMetadata,
       }));
@@ -383,6 +387,10 @@ export class QdrantVectorStore implements IVectorStore {
       const results: VectorSearchResult[] = response.map((match: any) => ({
         id: match.id,
         score: match.score,
+        payload: match.payload || {},
+        vectors: {
+          code: match.vector
+        },
         metadata: match.payload || {},
         values: match.vector,
       }));

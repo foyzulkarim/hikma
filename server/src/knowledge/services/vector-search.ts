@@ -18,9 +18,9 @@ class SearchResultRanker {
   static rerank(results: VectorSearchResult[], query: string): VectorSearchResult[] {
     // Simple reranking based on content relevance
     return results.map(result => {
-      const contentScore = this.calculateContentScore(result.metadata.content, query);
-      const titleScore = this.calculateTitleScore(result.metadata.title, query);
-      const pathScore = this.calculatePathScore(result.metadata.path || '', query);
+      const contentScore = this.calculateContentScore(result.payload?.docstring_summary || result.metadata?.docstring_summary || '', query);
+      const titleScore = this.calculateTitleScore(result.payload?.node_name || result.metadata?.node_name || '', query);
+      const pathScore = this.calculatePathScore(result.payload?.file_path || result.metadata?.file_path || '', query);
       
       // Combine scores with weights
       const combinedScore = (
@@ -92,7 +92,7 @@ class SearchResultRanker {
     
     // Group by source
     for (const result of results) {
-      const sourceKey = `${result.metadata.sourceType}:${result.metadata.sourceId}`;
+      const sourceKey = `${result.payload?.node_type}:${result.payload?.chunk_id}`;
       if (!sourceGroups.has(sourceKey)) {
         sourceGroups.set(sourceKey, []);
       }
@@ -147,7 +147,7 @@ class KeywordSearcher {
     if (keywords.length === 0) return results;
 
     return results.map(result => {
-      const keywordScore = this.calculateKeywordScore(result.metadata.content, keywords);
+      const keywordScore = this.calculateKeywordScore(result.payload?.docstring_summary || result.metadata?.docstring_summary || '', keywords);
       
       return {
         ...result,

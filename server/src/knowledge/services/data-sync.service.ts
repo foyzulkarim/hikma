@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { Neo4jChunkService, Neo4jChunkNode, ChunkRelationship, ChunkRelationshipType } from './neo4j-chunk.service';
 import { logger } from '../../core/utils/logger';
-import { DocumentChunk, ChunkMetadata, ASTChunkMetadata } from '../../core/types/embeddings';
+import { CodeChunk, CodeChunkMetadata, ASTChunkMetadata } from '../../core/types/embeddings';
 import {
   Neo4jSyncError,
   Neo4jConnectionError,
@@ -133,7 +133,7 @@ export class DataSyncService {
     const { batchSize, continueOnError, dryRun, includeRelationships } = options;
 
     // Get total count for progress tracking
-    const totalChunks = await this.prisma.documentChunk.count();
+    const totalChunks = await this.prisma.codeChunk.count();
     result.totalProcessed = totalChunks;
 
     logger.info(`Syncing ${totalChunks} chunks from PostgreSQL to Neo4j`);
@@ -141,12 +141,18 @@ export class DataSyncService {
     // Process chunks in batches
     for (let offset = 0; offset < totalChunks; offset += batchSize) {
       try {
-        const chunks = await this.prisma.documentChunk.findMany({
+        const chunks = await this.prisma.codeChunk.findMany({
           include: {
-            document: {
+            file: {
               include: {
-                knowledgeBase: {
-                  select: { projectId: true }
+                repository: {
+                  select: { 
+                    dataSource: {
+                      select: {
+                        projectId: true
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -254,14 +260,18 @@ export class DataSyncService {
     try {
       // Get chunks with AST metadata that might have relationships
       // TODO: Re-enable AST metadata queries when Prisma schema is properly synced
-      const chunksWithAst = await this.prisma.documentChunk.findMany({
+      const chunksWithAst = await this.prisma.codeChunk.findMany({
         include: {
           // astMetadata: true,
-          document: {
+          file: {
             include: {
-              knowledgeBase: {
-                select: {
-                  projectId: true
+              repository: {
+                select: { 
+                  dataSource: {
+                    select: {
+                      projectId: true
+                    }
+                  }
                 }
               }
             }
@@ -359,8 +369,8 @@ export class DataSyncService {
             relationshipType: ChunkRelationshipType.CALLS,
             properties: {
               dependency,
-              sourceFile: chunk.document.title,
-              targetFile: targetChunk.document.title
+              sourceFile: chunk.file.filePath,
+              targetFile: targetChunk.file.filePath
             }
           });
         }
@@ -419,25 +429,25 @@ export class DataSyncService {
     return {
       id: chunk.id,
       chunkId: chunk.id,
-      documentId: chunk.documentId,
-      projectId: chunk.document.knowledgeBase.projectId,
-      content: chunk.content,
-      filePath: chunk.document.title,
-      language: chunk.document.metadata?.language || 'unknown',
+      documentId: chunk.fileId,
+      projectId: chunk.file.repository.dataSource.projectId,
+      content: chunk.codeContent,
+      filePath: chunk.file.filePath,
+      language: chunk.file.language || 'unknown',
       // AST-specific properties
-      astNodeType: chunk.astMetadata?.astNodeType,
-      functionName: chunk.astMetadata?.functionName,
-      className: chunk.astMetadata?.className,
-      methodName: chunk.astMetadata?.methodName,
-      parameters: chunk.astMetadata?.parameters,
-      returnType: chunk.astMetadata?.returnType,
-      visibility: chunk.astMetadata?.visibility as 'public' | 'private' | 'protected',
-      isStatic: chunk.astMetadata?.isStatic,
-      isAsync: chunk.astMetadata?.isAsync,
-      complexity: chunk.astMetadata?.complexity,
-      dependencies: chunk.astMetadata?.dependencies,
-      startLine: chunk.astMetadata?.startLine,
-      endLine: chunk.astMetadata?.endLine,
+      astNodeType: chunk.nodeType,
+      functionName: chunk.nodeName,
+      className: chunk.nodeName,
+      methodName: chunk.nodeName,
+      parameters: chunk.signature,
+      returnType: undefined, // Not available in current schema
+      visibility: undefined, // Not available in current schema
+      isStatic: chunk.isStatic,
+      isAsync: chunk.isAsync,
+      complexity: chunk.complexityScore,
+      dependencies: undefined, // Not available in current schema
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
       createdAt: chunk.createdAt,
       updatedAt: chunk.updatedAt
     };
@@ -452,12 +462,12 @@ export class DataSyncService {
     const projectId = sampleProject?.id || 'unknown';
 
     const [postgresChunks, neo4jStats] = await Promise.all([
-      this.prisma.documentChunk.count(),
+      this.prisma.codeChunk.count(),
       this.neo4jChunkService.getChunkStats(projectId)
     ]);
 
     // Get chunks that exist in PostgreSQL but not in Neo4j
-    const postgresChunkIds = await this.prisma.documentChunk.findMany({
+    const postgresChunkIds = await this.prisma.codeChunk.findMany({
       select: { id: true }
     });
 
@@ -497,15 +507,19 @@ export class DataSyncService {
     }> = [];
 
     // Get a sample of chunks from PostgreSQL
-    const sampleChunks = await this.prisma.documentChunk.findMany({
+    const sampleChunks = await this.prisma.codeChunk.findMany({
       take: 100,
       include: {
         // astMetadata: true, // TODO: Enable when Prisma schema is synced
-        document: {
+        file: {
           include: {
-            knowledgeBase: {
-              select: {
-                projectId: true
+            repository: {
+              select: { 
+                dataSource: {
+                  select: {
+                    projectId: true
+                  }
+                }
               }
             }
           }
@@ -517,7 +531,7 @@ export class DataSyncService {
       try {
         // Check if chunk exists in Neo4j
         const neo4jChunks = await this.neo4jChunkService.findChunks({
-          documentId: chunk.documentId
+          documentId: chunk.fileId
         });
 
         if (neo4jChunks.length === 0) {
@@ -529,13 +543,13 @@ export class DataSyncService {
         } else {
           // Check for data consistency
           const neo4jChunk = neo4jChunks[0];
-          if (neo4jChunk.content !== chunk.content) {
+          if (neo4jChunk.content !== chunk.codeContent) {
             issues.push({
               type: 'conflicting',
               chunkId: chunk.id,
               details: { 
                 message: 'Content mismatch between PostgreSQL and Neo4j',
-                postgresLength: chunk.content.length,
+                postgresLength: chunk.codeContent.length,
                 neo4jLength: neo4jChunk.content.length
               }
             });

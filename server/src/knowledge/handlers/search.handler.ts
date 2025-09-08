@@ -110,7 +110,7 @@ export class SearchHandler {
         {
           limit,
           projectId: project_id,
-          documentId: filters?.document_id,
+          fileId: filters?.document_id,
           filter: searchFilters,
         }
       );
@@ -119,9 +119,9 @@ export class SearchHandler {
       const results: SearchResult[] = searchResults.results.map(result => ({
         id: result.payload.chunk_id,
         content: result.payload.content,
-        document_id: result.payload.document_id,
+        document_id: result.payload.file_id as string,
         project_id: result.payload.project_id,
-        chunk_index: result.payload.chunk_index,
+        chunk_index: result.payload.chunk_index as number,
         score: result.score,
         metadata: result.payload.metadata,
       }));

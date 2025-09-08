@@ -113,7 +113,7 @@ export class GitService {
    * @param options - Pull configuration options
    * @param correlationId - Optional correlation ID for logging
    * 
-   * @throws {Error} When repository path is invalid
+   * @throws {Error} When repository file_path is invalid
    * @throws {Error} When authentication fails (401)
    * @throws {Error} When pull operation fails
    * 

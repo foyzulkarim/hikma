@@ -309,7 +309,7 @@ export class ProjectEventHandlersService {
        let tempDir: string;
        let isExistingRepo = false;
        
-       // Check if project has existing temp path with valid git repository
+       // Check if project has existing temp file_path with valid git repository
         const syncInfo = project.getSyncInfo();
         if (syncInfo?.tempPath) {
           try {
@@ -332,14 +332,14 @@ export class ProjectEventHandlersService {
              });
            }
          } catch (error) {
-           // Error accessing existing path, create new temp directory
+           // Error accessing existing file_path, create new temp directory
            tempDir = await this.tempManager.createTempDirectory({
              prefix: `project-${project.id}`,
              autoCleanup: false
            });
          }
        } else {
-         // No existing temp path, create new one
+         // No existing temp file_path, create new one
          tempDir = await this.tempManager.createTempDirectory({
            prefix: `project-${project.id}`,
            autoCleanup: false

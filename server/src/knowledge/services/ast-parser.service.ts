@@ -74,7 +74,6 @@ class ASTParserService {
 
   private initializeParsers(): void {
     try {
-      // TypeScript/TSX
       const tsParser = new Parser();
       tsParser.setLanguage(TypeScript.typescript);
       this.parsers.set('typescript', tsParser);
@@ -120,6 +119,7 @@ class ASTParserService {
       this.parsers.set('csharp', csParser);
     } catch (error) {
       console.error('Failed to initialize AST parsers:', error);
+      throw error;
     }
   }
 

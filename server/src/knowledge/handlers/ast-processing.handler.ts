@@ -1,5 +1,5 @@
 import { astParserService } from '../services/ast-parser.service';
-import { ASTNodeType, ASTChunkMetadata, ChunkMetadata } from '../../core/types/embeddings';
+import { ASTNodeType, ASTChunkMetadata } from '../../core/types/embeddings';
 import { PrismaClient } from '@prisma/client';
 import { embeddingService } from '../services/embedding.service';
 import { logger } from '../../core/utils/logger';
@@ -46,10 +46,18 @@ export class ASTProcessingHandler {
       }
 
       // Parse the code with AST
+      const language = this.getLanguageFromPath(event.filePath, event.language);
+      logger.info(`Parsing ${event.filePath} as language: ${language}`);
+      
       const parseResult = await astParserService.parseCode(
         event.content,
-        this.getLanguageFromPath(event.filePath, event.language)
+        language
       );
+      
+      logger.info(`Parse result for ${event.filePath}: chunks=${parseResult.chunks.length}, errors=${parseResult.errors.length}`);
+      if (parseResult.errors.length > 0) {
+        logger.warn(`Parse errors for ${event.filePath}:`, parseResult.errors);
+      }
 
       if (!parseResult.chunks || parseResult.chunks.length === 0) {
         const errorMsg = parseResult.errors.length > 0 ? parseResult.errors.join(', ') : 'No chunks found';
@@ -88,71 +96,41 @@ export class ASTProcessingHandler {
       }
   }
 
-  // Create document record in database
-  private async createDocumentRecord(event: ASTProcessingEvent): Promise<string> {
+  // Create repository and code file records in database
+  private async createCodeFileRecord(event: ASTProcessingEvent): Promise<string> {
     try {
-      // Find or create knowledge base for the project
-      let knowledgeBase = await this.prisma.knowledgeBase.findFirst({
-        where: { projectId: event.projectId }
-      });
-
-      if (!knowledgeBase) {
-        knowledgeBase = await this.prisma.knowledgeBase.create({
-          data: {
-            projectId: event.projectId,
-            name: 'Default Knowledge Base',
-            description: 'Auto-generated knowledge base for AST processing'
-          }
-        });
-      }
-
-      // Find or create data source for the project
-      let dataSource = await this.prisma.dataSource.findFirst({
+      // Find or create repository for the project
+      let repository = await this.prisma.repository.findFirst({
         where: { 
-          projectId: event.projectId,
-          type: 'GIT'
+          url: event.sourceId
         }
       });
 
-      if (!dataSource) {
-        dataSource = await this.prisma.dataSource.create({
+      if (!repository) {
+        repository = await this.prisma.repository.create({
           data: {
-            projectId: event.projectId,
-            name: 'Git Repository',
-            type: 'GIT',
-            config: {
-              sourceType: event.sourceType,
-              syncId: event.sourceId
+            dataSource: {
+              connect: { id: event.projectId }
             },
-            status: 'ACTIVE',
-            errorCount: 0
+            name: 'Default Repository',
+            url: event.sourceId,
           }
         });
       }
 
-      // Create document record
-      const document = await this.prisma.document.create({
+      // Create code file record
+      const codeFile = await this.prisma.codeFile.create({
         data: {
-          knowledgeBaseId: knowledgeBase.id,
-          dataSourceId: dataSource.id,
-          externalId: event.filePath,
-          title: this.getFileNameFromPath(event.filePath),
-          content: event.content,
-          type: 'CODE_FILE',
-          status: 'PROCESSING',
-          hash: this.generateContentHash(event.content),
-          size: event.content.length,
-          metadata: {
-            language: event.language,
-            path: event.filePath,
-            sourceType: event.sourceType
-          }
+          repositoryId: repository.id,
+          filePath: event.filePath,
+          language: this.getLanguageFromPath(event.filePath, event.language),
+          lastModified: new Date(),
         }
       });
 
-      return document.id;
+      return codeFile.id;
     } catch (error) {
-      logger.error(`Error creating document record for ${event.filePath}:`, error);
+      logger.error(`Error creating code file record for ${event.filePath}:`, error);
       throw error;
     }
   }
@@ -163,8 +141,8 @@ export class ASTProcessingHandler {
   ): Promise<number> {
     let processedCount = 0;
     
-    // Create document record first
-    const documentId = await this.createDocumentRecord(event);
+    // Create code file record first
+    const codeFileId = await this.createCodeFileRecord(event);
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
@@ -181,26 +159,14 @@ export class ASTProcessingHandler {
           embedding = new Array(1536).fill(0);
         }
         
-        // Create document chunk with AST metadata
-        const documentChunk = await this.prisma.documentChunk.create({
+        // Create code chunk with AST metadata
+        const codeChunk = await this.prisma.codeChunk.create({
           data: {
-            documentId,
-            chunkIndex: i,
-            content: chunk.content,
-            embedding,
-            metadata: {
-              language: event.language,
-              filePath: event.filePath,
-              chunkType: 'ast',
-              astNodeType: chunk.type,
-              name: chunk.name,
-              startLine: chunk.startLine,
-              endLine: chunk.endLine,
-              complexity: chunk.metadata.complexity,
-              parameters: chunk.metadata.parameters,
-              returnType: chunk.metadata.returnType,
-              dependencies: chunk.metadata.dependencies
-            }
+            fileId: codeFileId,
+            codeContent: chunk.content,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            nodeType: this.mapToASTNodeType(chunk.type).toString(),
           }
         });
 
@@ -229,9 +195,9 @@ export class ASTProcessingHandler {
         // Create Neo4j chunk node
         try {
           await this.neo4jChunkService.createChunkNode({
-            id: `chunk_${documentChunk.id}`,
-            chunkId: documentChunk.id,
-            documentId,
+            id: `chunk_${codeChunk.id}`,
+            chunkId: codeChunk.id,
+            documentId: codeFileId,
             projectId: event.projectId,
             content: chunk.content,
             filePath: event.filePath,
@@ -285,25 +251,34 @@ export class ASTProcessingHandler {
       // Continue processing even if relationship building fails
     }
 
-    // Update document status to indexed
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'INDEXED' }
+    // Update code file status to indexed
+    await this.prisma.codeFile.update({
+      where: { id: codeFileId },
+      data: { }
     });
 
     return processedCount;
   }
 
-  private buildASTChunkMetadata(chunk: any, event: ASTProcessingEvent): ASTChunkMetadata {
+  private buildASTChunkMetadata(chunk: any, event: ASTProcessingEvent, repositoryId: string): ASTChunkMetadata {
     return {
-      // Required ChunkMetadata properties
-      documentType: 'CODE',
-      sourceType: event.sourceType,
-      sourceId: event.sourceId,
-      projectId: event.projectId,
-      title: this.getFileNameFromPath(event.filePath),
-      path: event.filePath,
+      // Required CodeChunkMetadata properties
+      repositoryId,
+      filePath: event.filePath,
       language: this.getLanguageFromPath(event.filePath, event.language),
+      projectId: event.projectId,
+      nodeType: chunk.type,
+      nodeName: chunk.name,
+      signature: chunk.signature,
+      hasDocstring: chunk.hasDocstring || false,
+      hasErrorHandling: chunk.hasErrorHandling || false,
+      hasTests: chunk.hasTests || false,
+      isExported: chunk.isExported || false,
+      isAsync: chunk.isAsync || false,
+      isGenerator: chunk.isGenerator || false,
+      isStatic: chunk.isStatic || false,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       // AST-specific properties
@@ -314,12 +289,8 @@ export class ASTProcessingHandler {
       parameters: chunk.parameters,
       returnType: chunk.returnType,
       visibility: chunk.visibility,
-      isStatic: chunk.isStatic,
-      isAsync: chunk.isAsync,
       complexity: chunk.complexity,
       dependencies: chunk.dependencies,
-      startLine: chunk.startLine,
-      endLine: chunk.endLine,
       syntaxTree: chunk.syntaxTree,
     };
   }

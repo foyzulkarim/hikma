@@ -37,7 +37,7 @@ export class GitConnector extends BaseConnector {
   constructor(config: GitConnectorConfig, tempPath?: string) {
     super(config);
     
-    // Use temporary path if provided, otherwise use configured path
+    // Use temporary file_path if provided, otherwise use configured file_path
     this.repositoryPath = tempPath || config.settings.repositoryPath;
     this.isTemporaryRepository = !!tempPath;
     this.branch = config.settings.branch || 'main';
@@ -90,7 +90,7 @@ export class GitConnector extends BaseConnector {
       // Check if repository exists
       const repoExists = await this.checkRepositoryExists();
       if (!repoExists) {
-        throw new Error(`Repository not found at path: ${this.repositoryPath}`);
+        throw new Error(`Repository not found at file_path: ${this.repositoryPath}`);
       }
 
       // Check if it's a valid git repository
@@ -270,7 +270,7 @@ export class GitConnector extends BaseConnector {
 
   protected async validateTypeSpecificConfig(config: GitConnectorConfig): Promise<boolean> {
     try {
-      // Check if repository path exists
+      // Check if repository file_path exists
       const stats = await fs.stat(config.settings.repositoryPath);
       if (!stats.isDirectory()) {
         return false;
@@ -518,7 +518,7 @@ export class GitConnector extends BaseConnector {
   }
 
   private async getFileDocument(id: string): Promise<ExtractedDocument | null> {
-    // Extract file path from ID
+    // Extract file file_path from ID
     const match = id.match(/^git:.+:file:(.+)$/);
     if (!match) return null;
 
@@ -695,7 +695,7 @@ export class GitConnector extends BaseConnector {
   }
 
   /**
-   * Get the repository path (useful for temporary repositories)
+   * Get the repository file_path (useful for temporary repositories)
    */
   public getRepositoryPath(): string {
     return this.repositoryPath;

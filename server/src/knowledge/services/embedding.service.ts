@@ -1,4 +1,4 @@
-import { DocumentChunk } from '@prisma/client';
+import { CodeChunk } from '../../core/types/embeddings.js';
 import { llmService } from '@/config/llm';
 import { logger } from '@/core/utils/logger';
 import { EmbeddingModel } from '@/core/types/embeddings';
@@ -57,9 +57,9 @@ export class EmbeddingService {
   /**
    * Generate embedding for a document chunk
    */
-  async embedChunk(chunk: DocumentChunk): Promise<number[]> {
+  async embedChunk(chunk: CodeChunk): Promise<number[]> {
     try {
-      if (!chunk.content) {
+      if (!chunk.codeContent) {
         throw new Error('Chunk content cannot be empty');
       }
 
@@ -70,8 +70,8 @@ export class EmbeddingService {
 
       logger.debug({
         chunkId: chunk.id,
-        documentId: chunk.documentId,
-        contentLength: chunk.content.length,
+        fileId: chunk.fileId,
+        contentLength: chunk.codeContent.length,
         embeddingDimensions: embedding.length,
       }, 'Generated embedding for chunk');
 
@@ -80,7 +80,7 @@ export class EmbeddingService {
       logger.error({ 
         error, 
         chunkId: chunk.id, 
-        documentId: chunk.documentId 
+        fileId: chunk.fileId 
       }, 'Failed to generate embedding for chunk');
       throw error;
     }
@@ -89,7 +89,7 @@ export class EmbeddingService {
   /**
    * Generate embeddings for multiple chunks in batches
    */
-  async embedChunks(chunks: DocumentChunk[]): Promise<Map<string, number[]>> {
+  async embedChunks(chunks: CodeChunk[]): Promise<Map<string, number[]>> {
     const results = new Map<string, number[]>();
     const errors: Array<{ chunkId: string; error: any }> = [];
 
@@ -141,30 +141,17 @@ export class EmbeddingService {
   /**
    * Create embedding text from chunk content and metadata
    */
-  private createEmbeddingText(chunk: DocumentChunk): string {
-    let embeddingText = chunk.content;
+  private createEmbeddingText(chunk: CodeChunk): string {
+    let embeddingText = chunk.codeContent;
 
-    // Add metadata context if available
-    if (chunk.metadata && typeof chunk.metadata === 'object') {
-      const metadata = chunk.metadata as any;
-      
-      // Add AST metadata for code chunks
-      if (metadata.astNodeType) {
-        const astInfo = [];
-        if (metadata.functionName) astInfo.push(`function: ${metadata.functionName}`);
-        if (metadata.className) astInfo.push(`class: ${metadata.className}`);
-        if (metadata.methodName) astInfo.push(`method: ${metadata.methodName}`);
-        if (metadata.astNodeType) astInfo.push(`type: ${metadata.astNodeType}`);
-        
-        if (astInfo.length > 0) {
-          embeddingText = `${astInfo.join(', ')}\n\n${embeddingText}`;
-        }
-      }
-
-      // Add file path context
-      if (metadata.path) {
-        embeddingText = `File: ${metadata.path}\n\n${embeddingText}`;
-      }
+    // Add AST metadata for code chunks
+    const astInfo = [];
+    if (chunk.nodeName) astInfo.push(`name: ${chunk.nodeName}`);
+    if (chunk.nodeType) astInfo.push(`type: ${chunk.nodeType}`);
+    if (chunk.purposeCategory) astInfo.push(`purpose: ${chunk.purposeCategory}`);
+    
+    if (astInfo.length > 0) {
+      embeddingText = `${astInfo.join(', ')}\n\n${embeddingText}`;
     }
 
     return embeddingText;
@@ -201,6 +188,8 @@ export class EmbeddingService {
         return 1536;
       case EmbeddingModel.LM_STUDIO_EMBEDDING:
         return 768; // Nomic embed text model dimensions
+      case EmbeddingModel.OLLAMA_EMBEDDING:
+        return 1024; // mxbai-embed-large model dimensions
       default:
         return 768; // Default to LM Studio dimensions
     }

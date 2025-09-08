@@ -58,7 +58,8 @@ cp .env.example .env
 # Edit .env with your OpenAI API key
 npm install
 docker-compose up -d postgres redis neo4j qdrant
-npm run db:generate && npm run db:push
+npm run db:generate && npm run migrate:dev
+npx tsx tests/debug/setup-test-data.ts
 npm run dev
 ```
 
@@ -68,7 +69,8 @@ The API will be available at `http://localhost:3000`.
 
 For complete installation instructions, configuration details, and troubleshooting, see:
 
-**👉 [Setup Guide](docs/SETUP_GUIDE.md)** - Complete installation and configuration guide
+**👉 [Fresh Machine Setup Guide](docs/SETUP_GUIDE.md#-fresh-machine-setup)** - Step-by-step setup for new machines  
+**👉 [Complete Setup Guide](docs/SETUP_GUIDE.md)** - Full installation and configuration guide
 
 **Prerequisites:** Node.js 18+, Docker, OpenAI API key  
 **Time to setup:** ~10 minutes

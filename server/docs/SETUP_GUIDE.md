@@ -28,6 +28,160 @@ Then visit `http://localhost:3000/api/v1/health` to verify everything is working
 
 ---
 
+## 🆕 Fresh Machine Setup
+
+**Complete setup guide for a brand new machine or clean environment:**
+
+### Prerequisites Check
+```bash
+# Verify required software versions
+node --version    # Should be 18.x or higher
+npm --version     # Should be 8.x or higher
+docker --version  # Should be 20.x or higher
+docker-compose --version  # Should be 2.x or higher
+git --version     # Any recent version
+```
+
+### Step-by-Step Setup
+
+```bash
+# 1. Clone and navigate to project
+git clone <repository-url>
+cd hikma/server
+
+# 2. Install dependencies
+npm install
+
+# 3. Setup environment variables
+cp .env.example .env
+# Edit .env file - REQUIRED: Add your OpenAI API key
+# OPENAI_API_KEY=your_openai_api_key_here
+
+# 4. Start infrastructure services
+docker-compose up -d postgres redis neo4j qdrant
+
+# 5. Wait for services to be ready (30-60 seconds)
+docker-compose ps  # Verify all services show "Up" status
+
+# 6. Initialize database schema
+npm run db:generate
+npm run migrate:dev  # Creates initial migration if needed
+
+# 7. Create test data
+npx tsx tests/debug/setup-test-data.ts
+
+# 8. Verify setup
+npx tsx tests/debug/setup-test-data.ts check
+npx tsx tests/debug/sync-direct.ts
+
+# 9. Start development server
+npm run dev
+```
+
+### Verification Steps
+
+After setup, verify everything works:
+
+```bash
+# Check API health
+curl http://localhost:4000/api/v1/health
+
+# Check database connection
+npm run db:studio  # Opens Prisma Studio
+
+# Check all services
+docker-compose ps  # All should show "Up" status
+```
+
+### Fresh Database Reset (if needed)
+
+If you need to completely reset your database:
+
+```bash
+# Stop the application
+# Ctrl+C if running npm run dev
+
+# Reset database with force flag
+npx prisma migrate reset --force
+
+# Recreate test data
+npx tsx tests/debug/setup-test-data.ts
+
+# Verify everything works
+npx tsx tests/debug/setup-test-data.ts check
+npx tsx tests/debug/sync-direct.ts
+```
+
+### Debug and Development Commands
+
+Useful commands for development and debugging:
+
+```bash
+# Database Management
+npm run db:studio              # Open Prisma Studio
+npm run migrate:status          # Check migration status
+npm run migrate:dev             # Apply new migrations
+npm run migrate:reset --force   # Complete database reset
+
+# Test Data Management
+npx tsx tests/debug/setup-test-data.ts        # Create and verify test data (default)
+npx tsx tests/debug/setup-test-data.ts create # Create/update test data only
+npx tsx tests/debug/setup-test-data.ts check  # Verify test data only
+
+# Sync Testing
+npx tsx tests/debug/sync-direct.ts          # Direct project sync test (uses dynamic test data)
+
+# Service Management
+docker-compose ps                           # Check service status
+docker-compose logs [service-name]          # View service logs
+docker-compose restart [service-name]       # Restart specific service
+
+# Development Server
+npm run dev                     # Start development server with hot reload
+npm run build                   # Build for production
+npm run start                   # Start production server
+```
+
+**Note:** The debug scripts in `tests/debug/` are specifically designed for development and testing. They create consistent test data and verify system functionality.
+
+### Troubleshooting Fresh Setup
+
+**Services won't start:**
+```bash
+# Check if ports are already in use
+lsof -i :5432  # PostgreSQL
+lsof -i :6379  # Redis
+lsof -i :7474  # Neo4j HTTP
+lsof -i :7687  # Neo4j Bolt
+lsof -i :6333  # Qdrant
+
+# Stop conflicting services or change ports in docker-compose.yml
+```
+
+**Database connection issues:**
+```bash
+# Check Docker logs
+docker-compose logs postgres
+docker-compose logs redis
+docker-compose logs neo4j
+docker-compose logs qdrant
+
+# Restart specific service
+docker-compose restart postgres
+```
+
+**Migration issues:**
+```bash
+# Check migration status
+npx prisma migrate status
+
+# Reset and reapply migrations
+npx prisma migrate reset --force
+npx prisma migrate dev --name initial_migration
+```
+
+---
+
 ## 📋 Prerequisites
 
 ### Required Software
@@ -268,7 +422,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \\
 If you haven't run the seed scripts, you can manually create a user:
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/users \\
+curl -X POST http://localhost:4000/api/v1/users \\
   -H \"Content-Type: application/json\" \\
   -d '{\n    \"email\": \"test@example.com\",\n    \"username\": \"testuser\",\n    \"password\": \"password123\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"User\"\n  }'
 ```
@@ -276,13 +430,13 @@ curl -X POST http://localhost:3000/api/v1/users \\
 ### 2. Create a Project
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/projects \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"Test Project\",\n    \"description\": \"My first Hikma project\",\n    \"slug\": \"test-project\"\n  }'
+curl -X POST http://localhost:4000/api/v1/projects \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"Test Project\",\n    \"description\": \"My first Hikma project\",\n    \"slug\": \"test-project\"\n  }'
 ```
 
 ### 3. Test Query Processing
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/query \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"query\": \"What is this system about?\",\n    \"projectId\": \"your-project-id\"\n  }'
+curl -X POST http://localhost:4000/api/v1/query \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"query\": \"What is this system about?\",\n    \"projectId\": \"your-project-id\"\n  }'
 ```
 
 ---
@@ -378,14 +532,14 @@ docker exec -it hikma-postgres-1 psql -U hikma -d hikma -c \"SELECT 1;\"
 
 **Solutions**:
 ```bash
-# Find process using port 3000
-lsof -i :3000
+# Find process using port 4000
+lsof -i :4000
 
 # Kill the process (replace PID)
 kill -9 <PID>
 
 # Or change port in .env
-echo \"PORT=3001\" >> .env
+echo "PORT=4001" >> .env
 ```
 
 #### ❌ \"Docker services won't start\"
